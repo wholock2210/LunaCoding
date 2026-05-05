@@ -98,4 +98,17 @@ src/
 │       └── ModelAddInput.tsx ← MỚI
 ```
 
-### Tổng số dòng code: 2,642
+## [2] 2026-05-06 — Tinh chỉnh UI Chat & Tổ chức component
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Tách nhỏ component chat, đơn giản hóa giao diện hiển thị tin nhắn.
+
+### Các thay đổi
+- **ResponseBlock.tsx**: Tách component hiển thị phản hồi AI riêng (`●` xám + nội dung wrap)
+- **LoadingIndicator.tsx**: Tách component loading spinner riêng
+- **TerminalMid.tsx**:
+  - Import và dùng `<ResponseBlock />` thay cho code inline
+  - Import và dùng `<LoadingIndicator />` thay cho text "🤖 Đang trả lời..."
+  - User message giữ `❯` prefix, không border, không background, không timestamp
+  - Container ngoài giữ `borderStyle="round" borderColor="blue"`
