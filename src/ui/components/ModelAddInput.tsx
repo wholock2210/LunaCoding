@@ -38,11 +38,11 @@ const ModelAddInput = ({ providerName, existingModels, onAdd, onBack }: ModelAdd
     onAdd(trimmed);
     setInputValue('');
     setError(null);
-    setSuccess(`Đã thêm model "${trimmed}". Nhập tiếp hoặc Q để quay lại.`);
+    setSuccess(`Đã thêm model "${trimmed}". Nhập tiếp hoặc Esc để quay lại.`);
   };
 
-  useInput((input) => {
-    if (input === 'q' || input === 'Q') {
+  useInput((_input, key) => {
+    if (key.escape) {
       onBack();
     }
   });
@@ -101,7 +101,7 @@ const ModelAddInput = ({ providerName, existingModels, onAdd, onBack }: ModelAdd
           Nhập model ID và nhấn <Text color="green" bold>Enter</Text> để thêm
         </Text>
         <Text dimColor>
-          Nhấn <Text color="yellow" bold>Q</Text> để quay lại danh sách model
+          Nhấn <Text color="yellow" bold>Esc</Text> để quay lại danh sách model
         </Text>
       </Box>
     </Box>

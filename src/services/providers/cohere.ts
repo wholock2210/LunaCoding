@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
-import type { Message, TestConnectionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
 
 interface CohereApiMessage {
   role: 'USER' | 'CHATBOT';
@@ -14,6 +14,16 @@ interface CohereChatRequest {
 
 interface CohereChatResponse {
   text: string;
+  meta?: {
+    tokens?: {
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+    billed_units?: {
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+  };
 }
 
 interface CohereModelEntry {
@@ -73,7 +83,7 @@ export class CohereProvider extends BaseProvider {
     return result;
   }
 
-  async chat(messages: Message[], model?: string): Promise<string> {
+  async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {
     const cohereMessages = this.toCohereMessages(messages);
 
     try {
@@ -92,10 +102,23 @@ export class CohereProvider extends BaseProvider {
         },
       );
 
-      const text = response.data?.text;
-      return text || 'LunaCoding: Không nhận được phản hồi từ AI.';
+      const data = response.data;
+      const text = data?.text;
+      const content = text || 'LunaCoding: Không nhận được phản hồi từ AI.';
+
+      const meta = data?.meta;
+      const usage = meta?.tokens
+        ? {
+            promptTokens: meta.tokens.input_tokens ?? 0,
+            completionTokens: meta.tokens.output_tokens ?? 0,
+            reasoningTokens: 0,
+            totalTokens: (meta.tokens.input_tokens ?? 0) + (meta.tokens.output_tokens ?? 0),
+          }
+        : undefined;
+
+      return { content, usage };
     } catch (error: unknown) {
-      return this.formatError(error);
+      return { content: this.formatError(error) };
     }
   }
 

@@ -2,6 +2,10 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  reasoningContent?: string;
+  reasoningTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 // ============================================================
@@ -53,4 +57,28 @@ export interface ProviderFormState {
   defaultModel: string;
   testPassed: boolean;
   testMessage: string;
+}
+
+/** Kết quả trả về từ chat completion API */
+export interface ChatCompletionResult {
+  content: string;
+  reasoning?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+  };
+}
+
+/** Mỗi chunk trong streaming response */
+export interface ChatStreamChunk {
+  type: 'reasoning' | 'content' | 'done';
+  text?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+  };
 }

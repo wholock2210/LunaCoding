@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
-import type { Message, TestConnectionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
 
 interface ApiMessage {
   role: 'user' | 'assistant';
@@ -11,8 +11,17 @@ interface ChatCompletionResponse {
   choices: Array<{
     message: {
       content: string;
+      reasoning_content?: string;
     };
   }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    completion_tokens_details?: {
+      reasoning_tokens: number;
+    };
+    total_tokens: number;
+  };
 }
 
 interface ModelsListResponse {
@@ -34,7 +43,17 @@ export class OpenAICompatibleProvider extends BaseProvider {
     return 'https://api.openai.com';
   }
 
-  async chat(messages: Message[], model?: string): Promise<string> {
+  private resolveApiPath(path: string): string {
+    // Loại bỏ trailing slash của baseUrl
+    let base = this.baseUrl.replace(/\/+$/, '');
+    // Nếu baseUrl đã kết thúc bằng /v1 thì không thêm //v1 nữa
+    if (base.endsWith('/v1')) {
+      return `${base}${path}`;
+    }
+    return `${base}/v1${path}`;
+  }
+
+  async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {
     const apiMessages: ApiMessage[] = messages.map((msg) => ({
       role: msg.role,
       content: msg.content,
@@ -42,7 +61,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
     try {
       const response = await axios.post<ChatCompletionResponse>(
-        `${this.baseUrl}/v1/chat/completions`,
+        this.resolveApiPath('/chat/completions'),
         {
           model: model ?? this.defaultModel,
           messages: apiMessages,
@@ -56,19 +75,31 @@ export class OpenAICompatibleProvider extends BaseProvider {
         },
       );
 
-      const content = response.data?.choices?.[0]?.message?.content;
+      const data = response.data;
+      const content = data?.choices?.[0]?.message?.content;
       if (!content) {
-        return 'LunaCoding: Không nhận được phản hồi từ AI.';
+        return { content: 'LunaCoding: Không nhận được phản hồi từ AI.' };
       }
-      return content;
+
+      const reasoning = data?.choices?.[0]?.message?.reasoning_content ?? undefined;
+      const usage = data?.usage
+        ? {
+            promptTokens: data.usage.prompt_tokens,
+            completionTokens: data.usage.completion_tokens,
+            reasoningTokens: data.usage.completion_tokens_details?.reasoning_tokens ?? 0,
+            totalTokens: data.usage.total_tokens,
+          }
+        : undefined;
+
+      return { content, reasoning, usage };
     } catch (error: unknown) {
-      return this.formatError(error);
+      return { content: this.formatError(error) };
     }
   }
 
   async listModels(): Promise<string[]> {
     try {
-      const response = await axios.get<ModelsListResponse>(`${this.baseUrl}/v1/models`, {
+      const response = await axios.get<ModelsListResponse>(this.resolveApiPath('/models'), {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
         },
@@ -86,7 +117,7 @@ export class OpenAICompatibleProvider extends BaseProvider {
   async testConnection(): Promise<TestConnectionResult> {
     try {
       const response = await axios.post<ChatCompletionResponse>(
-        `${this.baseUrl}/v1/chat/completions`,
+        this.resolveApiPath('/chat/completions'),
         {
           model: this.defaultModel,
           messages: [{ role: 'user', content: 'hi' }],

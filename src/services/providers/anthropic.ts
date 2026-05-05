@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
-import type { Message, TestConnectionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
 
 interface AnthropicContentBlock {
   type: 'text';
@@ -9,6 +9,10 @@ interface AnthropicContentBlock {
 
 interface AnthropicMessageResponse {
   content: AnthropicContentBlock[];
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
 }
 
 interface AnthropicApiMessage {
@@ -65,7 +69,7 @@ export class AnthropicProvider extends BaseProvider {
     return result;
   }
 
-  async chat(messages: Message[], model?: string): Promise<string> {
+  async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {
     const apiMessages = this.normalizeMessages(messages);
 
     try {
@@ -86,20 +90,30 @@ export class AnthropicProvider extends BaseProvider {
         },
       );
 
-      const content = response.data?.content;
-      if (!content || content.length === 0) {
-        return 'LunaCoding: Không nhận được phản hồi từ AI.';
+      const data = response.data;
+      const contentBlocks = data?.content;
+      if (!contentBlocks || contentBlocks.length === 0) {
+        return { content: 'LunaCoding: Không nhận được phản hồi từ AI.' };
       }
 
       // Gộp tất cả text blocks
-      const text = content
+      const text = contentBlocks
         .filter((block) => block.type === 'text')
         .map((block) => block.text)
         .join('\n');
 
-      return text || 'LunaCoding: Phản hồi rỗng từ AI.';
+      const usage = data?.usage
+        ? {
+            promptTokens: data.usage.input_tokens,
+            completionTokens: data.usage.output_tokens,
+            reasoningTokens: 0,
+            totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+          }
+        : undefined;
+
+      return { content: text || 'LunaCoding: Phản hồi rỗng từ AI.', usage };
     } catch (error: unknown) {
-      return this.formatError(error);
+      return { content: this.formatError(error) };
     }
   }
 

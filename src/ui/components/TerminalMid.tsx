@@ -23,6 +23,7 @@ export type UiMode =
 interface ChatModeProps {
 	messages: Message[];
 	isLoading: boolean;
+	expandedThinkingIndices: Set<number>;
 }
 
 interface ProviderListModeProps {
@@ -76,9 +77,9 @@ interface TerminalMidProps {
 }
 
 
-// ─── Component chat (giữ nguyên logic cũ) ───────────────────────────
+// ─── Component chat ───────────────────────────────────────────────────
 
-const ChatView = ({ messages, isLoading }: ChatModeProps) => {
+const ChatView = ({ messages, isLoading, expandedThinkingIndices }: ChatModeProps) => {
 	return (
 		<Box
 			flexDirection="column"
@@ -113,13 +114,19 @@ const ChatView = ({ messages, isLoading }: ChatModeProps) => {
 						<ResponseBlock
 							key={index}
 							content={msg.content}
+							reasoningContent={msg.reasoningContent}
+							reasoningTokens={msg.reasoningTokens}
+							completionTokens={msg.completionTokens}
+							totalTokens={msg.totalTokens}
+							isThinkingExpanded={expandedThinkingIndices.has(index)}
 						/>
 					),
 				)
 			)}
 			{isLoading && (
-				<Box marginTop={1}>
-					<LoadingIndicator />
+				<Box flexDirection="column" marginTop={1}>
+					<LoadingIndicator text="đang suy nghĩ..." />
+					<Text dimColor>  └ (ctrl + o để xem suy nghĩ)</Text>
 				</Box>
 			)}
 		</Box>
@@ -143,6 +150,7 @@ const TerminalMid = ({
 				<ChatView
 					messages={chatProps.messages}
 					isLoading={chatProps.isLoading}
+					expandedThinkingIndices={chatProps.expandedThinkingIndices}
 				/>
 			);
 
@@ -202,7 +210,7 @@ const TerminalMid = ({
 				/>
 			);
 
-		// ── Fallback (không bao giờ xảy ra nếu type đúng) ─────────
+		// ── Fallback ─────────────────────────────────────────────
 		default:
 			return (
 				<Box flexDirection="column" flexGrow={1} padding={1} borderStyle="round" borderColor="blue">

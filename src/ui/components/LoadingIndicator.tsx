@@ -15,10 +15,14 @@ const waveColors = [
 ];
 
 const dimColor = '#446688';
-const text = 'LunaCoding đang trả lời';
+const defaultText = 'LunaCoding đang trả lời';
 const waveWidth = waveColors.length;
 
-const LoadingIndicator = () => {
+interface LoadingIndicatorProps {
+  text?: string;
+}
+
+const LoadingIndicator = ({ text = defaultText }: LoadingIndicatorProps) => {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {

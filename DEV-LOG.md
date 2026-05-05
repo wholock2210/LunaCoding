@@ -111,4 +111,71 @@ Tách nhỏ component chat, đơn giản hóa giao diện hiển thị tin nhắ
   - Import và dùng `<ResponseBlock />` thay cho code inline
   - Import và dùng `<LoadingIndicator />` thay cho text "🤖 Đang trả lời..."
   - User message giữ `❯` prefix, không border, không background, không timestamp
-  - Container ngoài giữ `borderStyle="round" borderColor="blue"`
+   - Container ngoài giữ `borderStyle="round" borderColor="blue"`
+
+## [3] 2026-05-06 — Sửa xung đột phím Q trong input UI Provider
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Sửa lỗi phím `Q` bị bắt bởi `useInput` toàn cục khi người dùng đang gõ trong `TextInput`, khiến form bị quay lại bước trước không mong muốn. Thay thế toàn bộ phím `Q` bằng phím `Esc` (`key.escape`).
+
+### Các thay đổi
+- **ProviderAddForm.tsx**: Xóa block bắt `q`/`Q`, giữ lại block `key.escape` có sẵn. Cập nhật hướng dẫn UI `Q` → `Esc`.
+- **ModelAddInput.tsx**: Thay `input === 'q'` bằng `key.escape`. Cập nhật text thông báo thành công và hướng dẫn UI `Q` → `Esc`.
+- **ProviderTypeSelect.tsx**: Thay `input === 'q'` bằng `key.escape`. Cập nhật hướng dẫn UI `Q` → `Esc`.
+
+### Lý do
+Phím `Esc` không bao giờ xung đột với `TextInput` vì `TextInput` không nhận ký tự Escape làm input text, trong khi `Q` là ký tự thông thường dễ bị gõ khi nhập liệu.
+
+## [4] 2026-05-06 — Hiển thị Reasoning/Thinking & Token Count
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Tích hợp hiển thị quá trình suy nghĩ (reasoning/thinking) của model và thống kê token usage cho từng phản hồi. Người dùng có thể bật/tắt xem suy nghĩ bằng phím `Ctrl+O`.
+
+### Các thay đổi
+
+#### 1. Types & Data Flow (`src/services/types.ts`)
+- **`Message`**: Thêm các field tùy chọn:
+  - `reasoningContent?: string` — nội dung suy nghĩ của model
+  - `reasoningTokens?: number` — số token dành cho suy nghĩ
+  - `completionTokens?: number` — số token của phản hồi (không tính suy nghĩ)
+  - `totalTokens?: number` — tổng token đã dùng
+- **`ChatCompletionResult`**: Interface mới cho kết quả chat:
+  - `content: string` — nội dung phản hồi
+  - `reasoning?: string` — nội dung suy nghĩ (nếu có)
+  - `usage?: { promptTokens, completionTokens, reasoningTokens, totalTokens }`
+
+#### 2. Base Provider & Tất cả Provider (`src/services/providers/`)
+- **`base-provider.ts`**: Đổi signature `chat()` trả về `Promise<ChatCompletionResult>` (trước đây là `Promise<string>`)
+- **`openai-compatible.ts`**: Parse `reasoning_content` và `usage` (bao gồm `reasoning_tokens`) từ response OpenAI-compatible
+- **`anthropic.ts`**, **`cohere.ts`**, **`google-gemini.ts`**: Cập nhật trả về `ChatCompletionResult` với `usage` khi có
+
+#### 3. Chat Service (`src/services/chat.ts`)
+- `sendChatMessage()` trả về `ChatCompletionResult` thay vì `string`
+
+#### 4. UI — App State (`src/ui/app.tsx`)
+- Thêm state `expandedThinkingIndices: Set<number>` để theo dõi index nào đang mở thinking
+- Thêm `useInput` bắt `Ctrl+O`: toggle tất cả các khối suy nghĩ (mở tất cả hoặc đóng tất cả)
+- `handleSendMessage`: parse `ChatCompletionResult`, tạo `Message` với đầy đủ `reasoningContent`, `reasoningTokens`, `completionTokens`, `totalTokens`
+
+#### 5. UI — Loading Indicator (`src/ui/components/LoadingIndicator.tsx`)
+- Thêm prop `text?: string` cho phép tùy chỉnh text loading (mặc định "LunaCoding đang trả lời")
+- Hiệu ứng sóng màu chạy qua text
+
+#### 6. UI — Chat View (`src/ui/components/TerminalMid.tsx`)
+- `ChatView` component nhận thêm `expandedThinkingIndices` prop
+- Truyền `isThinkingExpanded` và `onToggleThinking` vào từng `ResponseBlock`
+- Khi `isLoading`: hiển thị `<LoadingIndicator text="đang suy nghĩ..." />` kèm dòng hướng dẫn `ctrl + o để xem suy nghĩ`
+
+#### 7. UI — Response Block (`src/ui/components/ResponseBlock.tsx`)
+- Viết lại hoàn toàn component:
+  - **Thinking toggle row**: Hiển thị `▶ Suy nghĩ (N tk) (ctrl+o để mở/đóng)` khi có reasoning content
+  - **Expanded thinking content**: Khi mở, hiển thị toàn bộ `reasoningContent` với màu xám, prefix `│`
+  - **Token info footer**: Hiển thị `{completionTokens} tk phản hồi · tổng {totalTokens} tk` ở góc phải
+  - Bỏ `index` và `onToggleThinking` props (toggle được xử lý qua Ctrl+O toàn cục)
+
+### Trải nghiệm người dùng
+- Nhấn `Ctrl+O` để toggle tất cả khối suy nghĩ trong lịch sử chat
+- Mỗi phản hồi assistant hiển thị token count đầy đủ
+- Khi AI đang trả lời, loading text là "đang suy nghĩ..." kèm gợi ý phím tắt

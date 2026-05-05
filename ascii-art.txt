@@ -1,20 +1,19 @@
-#gray
+#446688
                            .....
                       .....,,,,,,..     ,[white]▆[/white]
-          [white]▂[/white]         ...,:[#2F6FE0]░[/#2F6FE0][white]▅▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],.
-         [white]▆▆▆[/white]    .-.,:[#2F6FE0]░[/#2F6FE0][white]▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],...
-       [#2F6FE0]░░[/#2F6FE0][#3B82F6]▒[/#3B82F6][#2F6FE0]▓▓[/#2F6FE0][white]▆▆▆[/white]...:[#2F6FE0]░[/#2F6FE0][white]▅▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0]:...
-     [#2F6FE0]░░░░[/#2F6FE0][#3B82F6]▒▒▒[/#3B82F6][#2F6FE0]▓[/#2F6FE0][white]▆▆▆[/white][#2F6FE0]░░[/#2F6FE0][white]▆▆▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],..                [white]▅▅██▅[/white]
-             ..,[#2F6FE0]░[/#2F6FE0][white]▆▆▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],..                [white]▆▆[/white][#2F6FE0]▒░░░░[/#2F6FE0]
-            ..,[#2F6FE0]░[/#2F6FE0][white]▄▆▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],...         [white]▆▆▆▆[/white][#2F6FE0]▓▓▓▒▒[/#2F6FE0][#2F6FE0]░░░░░░░░░░[/#2F6FE0]
-            ..:[white]▂▆▆▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],..     [white]▅[/white][#2F6FE0]▓▓▓▓▓▓▒▒▒[/#2F6FE0][#2F6FE0]░░░░░░░░░░░░░░░░,[/#2F6FE0]
-         ,  ..,[#3B82F6]░▒▒[/#3B82F6][white]▆▆▆▆▆▆▅[/white][#2F6FE0]░[/#2F6FE0]:..                        [white]▅[/white]
-             .,;[#3B82F6]▆[/#3B82F6][#3B82F6]▒▓[/#3B82F6][#2F6FE0]▒[/#2F6FE0][#3B82F6]░[/#3B82F6][white]▆▆▆▆▅[/white][#2F6FE0]░[/#2F6FE0]:..                     [white]▅[/white][#2F6FE0]▓░░[/#2F6FE0]
-              .,[#3B82F6]▐[/#3B82F6][#3B82F6]▓[/#3B82F6][#2F6FE0]▒▒▒▒[/#2F6FE0][#3B82F6]░[/#3B82F6][white]▅▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],..                  [white]▀[/white][#2F6FE0]▒▒░░░,[/#2F6FE0]
-               .,[#3B82F6]▐[/#3B82F6][#3B82F6]▓[/#3B82F6][#2F6FE0]▒▒▒[/#2F6FE0][#3B82F6]░[/#3B82F6][white]▅▆▆▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0],...
-                .,[#3B82F6]▐[/#3B82F6][#3B82F6]▓[/#3B82F6][#2F6FE0]▒▒▒▒[/#2F6FE0][#3B82F6]░░[/#3B82F6][white]▀▆▆▆▆▆▁[/white][#2F6FE0]░[/#2F6FE0],.....[white]▅▅██[/white]▓
-       [white]▆▇▆[/white]     ~ ..:[#3B82F6]▐[/#3B82F6][#3B82F6]▓▓[/#3B82F6][#2F6FE0]▒▒▒▒[/#2F6FE0][#3B82F6]░░░░[/#3B82F6][white]▆▆▆▆[/white][#2F6FE0]░[/#2F6FE0][white]▅▅▅▐[/white][#2F6FE0]▓▓▓▓▓▓[/#2F6FE0]
-      [#2F6FE0]░░▒▓[/#2F6FE0][white]█[/white]        .,:[#3B82F6]▀[/#3B82F6][#3B82F6]▓▓▓[/#3B82F6][#2F6FE0]▒▒▒▒[/#2F6FE0][#3B82F6]░░░[/#3B82F6][white]▐██[/white][#2F6FE0]▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒[/#2F6FE0]
-    [#2F6FE0]░░░░░▒▓[/#2F6FE0][white]▆▆[/white]      ...,:[#3B82F6]▀[/#3B82F6][#3B82F6]▓[/#3B82F6][#2F6FE0]▒▒▒▒[/#2F6FE0][#3B82F6]░[/#3B82F6][white]██[/white][#2F6FE0]▓▓▓▓▓▒▒▒▒▒▒▒▒▒░░░░░░[/#2F6FE0]
-    [#2F6FE0]░░░░░▒▒▓▓▓[/#2F6FE0][white]▆▆▆[/white]    ......[white]▅███[/white][#2F6FE0]▓▓▓▓▒▒▒░░░░░░░░░░░░░░░░░[/#2F6FE0]
-
+          [white]▂[/white]         ...,:[#88ccff]░[/#88ccff][white]▅▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],.
+         [white]▆▆▆[/white]    .-.,:[#88ccff]░[/#88ccff][white]▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],...
+       [#88ccff]░░[/#88ccff][#99ddff]▒[/#99ddff][#88ccff]▓▓[/#88ccff][white]▆▆▆[/white]...:[#88ccff]░[/#88ccff][white]▅▆▆▆▆▆[/white][#88ccff]░[/#88ccff]:...
+     [#88ccff]░░░░[/#88ccff][#99ddff]▒▒▒[/#99ddff][#88ccff]▓[/#88ccff][white]▆▆▆[/white][#88ccff]░░[/#88ccff][white]▆▆▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],..                [white]▅▅██▅[/white]
+             ..,[#88ccff]░[/#88ccff][white]▆▆▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],..                [white]▆▆[/white][#88ccff]▒░░░░[/#88ccff]
+            ..,[#88ccff]░[/#88ccff][white]▄▆▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],...         [white]▆▆▆▆[/white][#88ccff]▓▓▓▒▒[/#88ccff][#88ccff]░░░░░░░░░░[/#88ccff]
+            ..:[white]▂▆▆▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],..     [white]▅[/white][#88ccff]▓▓▓▓▓▓▒▒▒[/#88ccff][#88ccff]░░░░░░░░░░░░░░░░,[/#88ccff]
+         ,  ..,[#99ddff]░▒▒[/#99ddff][white]▆▆▆▆▆▆▅[/white][#88ccff]░[/#88ccff]:..                        [white]▅[/white]
+             .,;[#99ddff]▆[/#99ddff][#99ddff]▒▓[/#99ddff][#88ccff]▒[/#88ccff][#99ddff]░[/#99ddff][white]▆▆▆▆▅[/white][#88ccff]░[/#88ccff]:..                     [white]▅[/white][#88ccff]▓░░[/#88ccff]
+              .,[#99ddff]▐[/#99ddff][#99ddff]▓[/#99ddff][#88ccff]▒▒▒▒[/#88ccff][#99ddff]░[/#99ddff][white]▅▆▆▆▆[/white][#88ccff]░[/#88ccff],..                  [white]▀[/white][#88ccff]▒▒░░░,[/#88ccff]
+               .,[#99ddff]▐[/#99ddff][#99ddff]▓[/#99ddff][#88ccff]▒▒▒[/#88ccff][#99ddff]░[/#99ddff][white]▅▆▆▆▆▆▆[/white][#88ccff]░[/#88ccff],...
+                .,[#99ddff]▐[/#99ddff][#99ddff]▓[/#99ddff][#88ccff]▒▒▒▒[/#88ccff][#99ddff]░░[/#99ddff][white]▀▆▆▆▆▆▁[/white][#88ccff]░[/#88ccff],.....[white]▅▅██[/white]▓
+       [white]▆▇▆[/white]     ~ ..:[#99ddff]▐[/#99ddff][#99ddff]▓▓[/#99ddff][#88ccff]▒▒▒▒[/#88ccff][#99ddff]░░░░[/#99ddff][white]▆▆▆▆[/white][#88ccff]░[/#88ccff][white]▅▅▅▐[/white][#88ccff]▓▓▓▓▓▓[/#88ccff]
+      [#88ccff]░░▒▓[/#88ccff][white]█[/white]        .,:[#99ddff]▀[/#99ddff][#99ddff]▓▓▓[/#99ddff][#88ccff]▒▒▒▒[/#88ccff][#99ddff]░░░[/#99ddff][white]▐██[/white][#88ccff]▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒[/#88ccff]
+    [#88ccff]░░░░░▒▓[/#88ccff][white]▆▆[/white]      ...,:[#99ddff]▀[/#99ddff][#99ddff]▓[/#99ddff][#88ccff]▒▒▒▒[/#88ccff][#99ddff]░[/#99ddff][white]██[/white][#88ccff]▓▓▓▓▓▒▒▒▒▒▒▒▒▒░░░░░░[/#88ccff]
+    [#88ccff]░░░░░▒▒▓▓▓[/#88ccff][white]▆▆▆[/white]    ......[white]▅███[/white][#88ccff]▓▓▓▓▒▒▒░░░░░░░░░░░░░░░░░[/#88ccff]

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box } from 'ink';
+import { Box, useInput } from 'ink';
 import TerminalTop from './components/TerminalTop.js';
 import TerminalMid from './components/TerminalMid.js';
 import TerminalBottom from './components/TerminalBottom.js';
@@ -26,6 +26,7 @@ const App = () => {
   // ============================================================
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [expandedThinkingIndices, setExpandedThinkingIndices] = useState<Set<number>>(new Set());
 
   // ============================================================
   // UI Mode & Provider state
@@ -51,6 +52,33 @@ const App = () => {
   useEffect(() => {
     refreshProviders();
   }, []);
+
+  // ============================================================
+  // Keyboard shortcut: Ctrl+O to toggle all reasoning blocks
+  // ============================================================
+  useInput((input, key) => {
+    if (key.ctrl && input === 'o') {
+      const reasoningIndices: number[] = [];
+      messages.forEach((msg, idx) => {
+        if (msg.role === 'assistant' && msg.reasoningContent) {
+          reasoningIndices.push(idx);
+        }
+      });
+
+      if (reasoningIndices.length > 0) {
+        setExpandedThinkingIndices(prev => {
+          const allExpanded = reasoningIndices.every(idx => prev.has(idx));
+          const next = new Set(prev);
+          if (allExpanded) {
+            reasoningIndices.forEach(idx => next.delete(idx));
+          } else {
+            reasoningIndices.forEach(idx => next.add(idx));
+          }
+          return next;
+        });
+      }
+    }
+  });
 
   // ============================================================
   // Command handler — parse các lệnh /
@@ -123,11 +151,17 @@ const App = () => {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    const responseContent = await sendChatMessage([...messages, userMessage]);
+    const result = await sendChatMessage([...messages, userMessage]);
 
     const assistantMessage: Message = {
       role: 'assistant',
-      content: responseContent,
+      content: result.content,
+      reasoningContent: result.reasoning,
+      reasoningTokens: result.usage?.reasoningTokens,
+      completionTokens: result.usage
+        ? result.usage.completionTokens - (result.usage.reasoningTokens ?? 0)
+        : undefined,
+      totalTokens: result.usage?.totalTokens,
       timestamp: new Date(),
     };
 
@@ -289,6 +323,7 @@ const App = () => {
         chatProps={{
           messages,
           isLoading,
+          expandedThinkingIndices,
         }}
         providerListProps={{
           providers,

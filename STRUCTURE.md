@@ -9,6 +9,7 @@ LunaCoding/
 ├── LICENSE                    # Giấy phép MIT
 ├── README.md                  # Giới thiệu ngắn: "AI Coding Agent Harness"
 ├── AGENTS.md                  # Hướng dẫn dành cho AI agent
+├── DEV-LOG.md                 # Nhật ký phát triển (development log)
 ├── STRUCTURE.md               # File này - mô tả cấu trúc dự án
 ├── package.json               # Cấu hình Node.js, dependencies, scripts
 ├── package-lock.json          # Lock file npm
@@ -24,28 +25,35 @@ LunaCoding/
     ├── index.tsx              # Entry point: render app bằng Ink
     │
     ├── services/              # Tầng dịch vụ (API, types, providers)
-    │   ├── chat.ts            # Giao tiếp với AI proxy (HTTP POST)
+    │   ├── chat.ts            # Giao tiếp với AI proxy: trả về ChatCompletionResult (content + reasoning + usage)
     │   ├── config.ts          # Quản lý cấu hình: đọc/ghi file config, API keys
     │   ├── crypto.ts          # Mã hóa/giải mã API keys (AES-256-GCM)
-    │   ├── types.ts           # Định nghĩa interface Message, ApiMessage, ProviderConfig, v.v.
+    │   ├── types.ts           # Định nghĩa interface Message, ChatCompletionResult, ProviderConfig, v.v.
     │   │
     │   └── providers/         # Hệ thống multi-provider
-    │       ├── base-provider.ts        # Abstract base class cho tất cả provider
+    │       ├── base-provider.ts        # Abstract base class: chat() → ChatCompletionResult
     │       ├── registry.ts             # Provider registry: quản lý danh sách provider
-    │       ├── openai-compatible.ts    # Provider cho OpenAI-compatible API
+    │       ├── openai-compatible.ts    # Provider cho OpenAI-compatible API (parse reasoning_content + usage)
     │       ├── anthropic.ts            # Provider cho Anthropic (Claude)
     │       ├── google-gemini.ts        # Provider cho Google Gemini
     │       └── cohere.ts               # Provider cho Cohere
     │
     └── ui/                    # Tầng giao diện (React components)
-        ├── app.tsx            # Component gốc: state management + orchestration
+        ├── app.tsx            # Component gốc: state management + UI mode routing
+        │                       #   - expandedThinkingIndices: Set<number> — trạng thái toggle thinking
+        │                       #   - useInput bắt Ctrl+O: toggle tất cả khối suy nghĩ
+        │                       #   - handleSendMessage: parse ChatCompletionResult → Message
         │
         └── components/        # Các component con
             ├── TerminalTop.tsx        # Header: ASCII art, thông tin hệ thống, đồng hồ
             ├── TerminalMid.tsx        # Router component: điều hướng giữa các màn hình
-            ├── TerminalBottom.tsx     # Input bar: nhập tin nhắn, gửi
-            ├── ResponseBlock.tsx      # Hiển thị một tin nhắn (user/assistant) với border màu
-            ├── LoadingIndicator.tsx   # Indicator loading khi AI đang trả lời
+            │                           #   - ChatView: hiển thị messages + ResponseBlock + LoadingIndicator
+            │                           #   - Khi loading: hiển thị "đang suy nghĩ..." + gợi ý Ctrl+O
+            ├── TerminalBottom.tsx     # Input bar: nhập tin nhắn, gửi, parse lệnh /
+            ├── ResponseBlock.tsx      # Hiển thị một phản hồi assistant:
+            │                           #   - Thinking toggle (▶/▼) + reasoning content (màu xám)
+            │                           #   - Token count footer (tk phản hồi · tổng tk)
+            ├── LoadingIndicator.tsx   # Indicator loading: spinner + text tùy chỉnh + hiệu ứng sóng màu
             ├── ProviderMenu.tsx       # Màn hình danh sách provider đã cấu hình
             ├── ProviderTypeSelect.tsx # Màn hình chọn loại provider để thêm mới
             ├── ProviderAddForm.tsx    # Form nhập thông tin provider mới
@@ -66,13 +74,16 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 │  └──────────┘ └──────────┘ └──────────────┘ └───────────────┘  │
 │                        ↕                                          │
 │                App (state hub + router)                           │
+│    - messages, isLoading, expandedThinkingIndices                 │
+│    - Ctrl+O: toggle all thinking blocks                           │
 ├──────────────────────────────────────────────────────────────────┤
 │                       Service Layer                               │
 │  ┌──────────┐ ┌──────────┐ ┌────────────┐ ┌──────────────────┐  │
 │  │ chat.ts  │ │config.ts │ │ crypto.ts  │ │   providers/     │  │
 │  │ (router) │ │(config)  │ │ (encrypt)  │ │ base, registry,  │  │
-│  │          │ │          │ │            │ │ openai,anthropic, │  │
-│  │          │ │          │ │            │ │ gemini, cohere    │  │
+│  │ →ChatCompletionResult  │ │            │ │ openai,anthropic, │  │
+│  │ {content,reasoning,    │ │            │ │ gemini, cohere    │  │
+│  │  usage}                │ │            │ │                   │  │
 │  └──────────┘ └──────────┘ └────────────┘ └──────────────────┘  │
 │                        ↕                                          │
 │              Multiple AI Providers (HTTP)                         │
@@ -90,15 +101,17 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 ### `src/services/types.ts` – Type Definitions
 | Interface | Fields | Mô tả |
 |-----------|--------|-------|
-| `Message` | `role`, `content`, `timestamp` | Tin nhắn trong lịch sử chat |
+| `Message` | `role`, `content`, `timestamp`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?` | Tin nhắn trong lịch sử chat, hỗ trợ reasoning/thinking |
+| `ChatCompletionResult` | `content`, `reasoning?`, `usage?` | Kết quả trả về từ provider chat |
+| `Usage` | `promptTokens`, `completionTokens`, `reasoningTokens`, `totalTokens` | Thống kê token usage |
 | `ProviderConfig` | `id`, `name`, `type`, `apiKey`, `endpoint?`, `models` | Cấu hình một provider AI |
-| `ModelConfig` | `id`, `name`, `providerId` | Cấu hình model thuộc provider |
-| `AppConfig` | `providers`, `activeProvider`, `activeModel` | Cấu hình toàn ứng dụng |
+| `ProviderType` | `'openai' \| 'anthropic' \| 'google-gemini' \| 'cohere'` | Loại provider được hỗ trợ |
+| `UiMode` | `'chat' \| 'provider-list' \| 'provider-type-select' \| 'provider-add-form' \| 'model-list'` | Chế độ giao diện |
 
 ### `src/services/config.ts` – Quản lý cấu hình
-- Đọc/ghi file cấu hình JSON (`~/.lunacoding/config.json`)
+- Đọc/ghi file cấu hình JSON (`~/.LunaCoding/setting.json`)
 - Quản lý danh sách provider, model, API keys
-- Hỗ trợ: `loadConfig()`, `saveConfig()`, `addProvider()`, `removeProvider()`, `setActiveModel()`
+- Hỗ trợ: `loadConfig()`, `saveConfig()`, `addProvider()`, `removeProvider()`, `setCurrentProvider()`, `setDefaultModel()`, `updateProviderModels()`
 - Tự động tạo file config mặc định nếu chưa tồn tại
 
 ### `src/services/crypto.ts` – Mã hóa API Keys
@@ -107,63 +120,61 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Hỗ trợ: `encrypt(plainText)`, `decrypt(encryptedText)`
 - Key được derive từ `os.hostname()` + `os.userInfo().username` để mỗi máy có key riêng
 
+### `src/services/chat.ts` – API Service
+- **Hàm:** `sendChatMessage(messages: Message[]): Promise<ChatCompletionResult>`
+- Trả về `ChatCompletionResult` với `content`, `reasoning` (nếu có), và `usage` (nếu có)
+- Nếu chưa có provider, trả về `{ content: '...hướng dẫn...' }`
+
 ### `src/services/providers/` – Hệ thống Multi-Provider
 
 #### `base-provider.ts` – Abstract Base Class
-- Định nghĩa interface chung cho tất cả provider: `sendMessage(messages, model, apiKey)`
-- Các method abstract: `buildRequest()`, `parseResponse()`, `getHeaders()`
-- Xử lý chung: retry logic, timeout, error normalization
+- Abstract class `BaseProvider` định nghĩa interface chung:
+  - `getType(): string` — loại provider
+  - `chat(messages, model?): Promise<ChatCompletionResult>` — gửi chat request, trả về kết quả có reasoning + usage
+  - `listModels(): Promise<string[]>` — lấy danh sách model
+  - `testConnection(): Promise<TestConnectionResult>` — kiểm tra kết nối
+- `static getDefaultBaseUrl(): string` — URL mặc định cho từng provider
 
 #### `registry.ts` – Provider Registry
-- Đăng ký và quản lý danh sách các provider implementation
-- Hỗ trợ: `register()`, `getProvider(type)`, `listProviders()`
-- Map type provider (string) → class implementation
+- `createProvider(config: ProviderConfig): BaseProvider` — factory tạo provider instance
+- Map type provider → class implementation
 
 #### `openai-compatible.ts` – OpenAI-Compatible Provider
 - Hỗ trợ mọi API tương thích OpenAI (OpenAI, DeepSeek, xAI, v.v.)
 - Endpoint: `{baseURL}/v1/chat/completions`
-- Request format: `{ model, messages, temperature?, max_tokens? }`
-- Response: `choices[0].message.content`
+- **Parse reasoning_content**: từ `message.reasoning_content`
+- **Parse usage**: `prompt_tokens`, `completion_tokens`, `completion_tokens_details.reasoning_tokens`, `total_tokens`
 
 #### `anthropic.ts` – Anthropic Provider
 - Hỗ trợ Anthropic Claude models
 - Endpoint: `https://api.anthropic.com/v1/messages`
 - Header: `x-api-key`, `anthropic-version: 2023-06-01`
-- Request format: `{ model, max_tokens, messages }`
-- Response: `content[0].text`
 
 #### `google-gemini.ts` – Google Gemini Provider
 - Hỗ trợ Google Gemini models
 - Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
 - API key truyền qua query param `?key=`
-- Request format: `{ contents: [{ parts: [{ text }] }] }`
-- Response: `candidates[0].content.parts[0].text`
 
 #### `cohere.ts` – Cohere Provider
 - Hỗ trợ Cohere models
-- Endpoint: `https://api.cohere.ai/v1/chat`
-- Header: `Authorization: Bearer {API_KEY}`
-- Request format: `{ model, message, chat_history? }`
-- Response: `text`
-
-### `src/services/chat.ts` – API Service
-- **Endpoint:** `POST http://127.0.0.1:8080/v1/chat/completions`
-- **Model:** `DeepSeek-R1-expert-search`
-- **API Key:** `123456`
-- **Header:** `Authorization: Bearer {API_KEY}`, `Content-Type: application/json`
-- **Request body:** `{ model, messages }`
-- **Response:** Lấy `choices[0].message.content`, nếu lỗi trả về thông báo lỗi thân thiện
+- Endpoint: `https://api.cohere.com/v2/chat`
+- Role: `USER` / `CHATBOT` (viết hoa)
 
 ### `src/ui/app.tsx` – Root Component
-- **State:** `messages: Message[]`, `isLoading: boolean`
+- **State:**
+  - `messages: Message[]` — lịch sử chat
+  - `isLoading: boolean` — trạng thái đang chờ AI trả lời
+  - `expandedThinkingIndices: Set<number>` — index của các message đang mở thinking
+  - `uiMode: UiMode` — chế độ giao diện hiện tại
+  - Các state cho provider/model management
+- **Keyboard shortcut:**
+  - `Ctrl+O`: toggle tất cả khối suy nghĩ (mở tất cả nếu có block đang đóng, đóng tất cả nếu tất cả đang mở)
 - **Luồng xử lý gửi tin nhắn:**
   1. Tạo `userMessage` từ input
-  2. Append vào `messages`
-  3. `setLoading(true)`
-  4. Gọi `sendChatMessage([...messages, userMessage])`
-  5. Nhận response, tạo `assistantMessage`
-  6. Append vào `messages`
-  7. `setLoading(false)`
+  2. Append vào `messages`, `setLoading(true)`
+  3. Gọi `sendChatMessage([...messages, userMessage])` → `ChatCompletionResult`
+  4. Tạo `assistantMessage` với `content`, `reasoningContent`, `reasoningTokens`, `completionTokens`, `totalTokens`
+  5. Append vào `messages`, `setLoading(false)`
 
 ### `src/ui/components/TerminalTop.tsx` – Header
 - Đọc 2 file ASCII art (`ascii-art.txt`, `ascii-name.txt`)
@@ -183,7 +194,7 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 
 ### `src/ui/components/TerminalMid.tsx` – Router Component
 - **Vai trò:** Router chính, dispatch sang component con dựa trên `uiMode` prop
-- Nhận props: `uiMode`, `messages`, `isLoading`, và các callback điều hướng
+- Nhận props: `uiMode`, `chatProps`, `providerListProps`, `providerTypeSelectProps`, `providerAddFormProps`, `modelListProps`
 - **Các mode (switch/case):**
   | Mode | Component render | Mô tả |
   |------|-----------------|-------|
@@ -193,32 +204,54 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   | `provider-add-form` | `ProviderAddForm` | Form nhập thông tin provider mới |
   | `model-list` | `ModelMenu` / `ModelAddInput` | Danh sách model hoặc form thêm model |
 - **ChatView (internal component):**
+  - Nhận `messages`, `isLoading`, `expandedThinkingIndices`
   - Trạng thái rỗng: hiển thị "Chưa có tin nhắn nào..."
-  - Mỗi tin nhắn được render qua `<ResponseBlock>`:
-    - User: border xanh lá, icon 👤
-    - Assistant: border vàng, icon 🤖
-  - Khi `isLoading === true`: hiển thị `<LoadingIndicator>` thay vì text loading cũ
+  - User message: `❯` prefix + nội dung trắng
+  - Assistant message: render qua `<ResponseBlock>` với `isThinkingExpanded` từ `expandedThinkingIndices`
+  - Khi `isLoading`: hiển thị `<LoadingIndicator text="đang suy nghĩ..." />` + dòng `ctrl + o để xem suy nghĩ`
 
-### `src/ui/components/ResponseBlock.tsx` – Hiển thị tin nhắn
-- Nhận props: `message: Message`
-- Bọc mỗi tin nhắn trong border `single` với màu theo role
-- User: border xanh lá (`green`), icon 👤, role label "Bạn"
-- Assistant: border vàng (`yellow`), icon 🤖, role label "LunaCoding"
-- Hiển thị timestamp định dạng `toLocaleTimeString('vi-VN')`
-- Wrap nội dung tin nhắn với `wrap="wrap"` để tự động xuống dòng
+### `src/ui/components/ResponseBlock.tsx` – Hiển thị phản hồi assistant
+- Nhận props: `content`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?`, `isThinkingExpanded`
+- **Thinking toggle row:** Khi có `reasoningContent`, hiển thị:
+  - `▶ Suy nghĩ (N tk)` hoặc `▼ Suy nghĩ (N tk)` + gợi ý `(ctrl+o để mở/đóng)`
+- **Expanded thinking content:** Khi `isThinkingExpanded`, hiển thị toàn bộ `reasoningContent` với màu xám `#666666`, prefix `│`
+- **Main response:** `●` xám + nội dung wrap
+- **Token info footer:** `{completionTokens} tk phản hồi · tổng {totalTokens} tk` (dimColor, canh phải)
 
 ### `src/ui/components/LoadingIndicator.tsx` – Loading Indicator
-- Hiển thị khi AI đang xử lý phản hồi
-- Gồm icon 🤖 + text "LunaCoding đang trả lời..." + spinner động
-- Dùng `ink-spinner` để hiển thị animation loading
-- Màu sắc: dimColor cho text, icon 🤖 màu trắng
+- Nhận prop: `text?: string` (mặc định: "LunaCoding đang trả lời")
+- Hiển thị spinner động + text với **hiệu ứng sóng màu** chạy qua từng ký tự
+- Màu tối (`#446688`) khi không có sóng, màu sáng (`#88ccff` → `#bbffff`) khi sóng đi qua
 
 ### `src/ui/components/TerminalBottom.tsx` – Input Bar
-- Nhận props: `onSend: (input: string) => void`, `isLoading: boolean`
+- Nhận props: `onSend`, `onCommand`, `isLoading`, `uiMode`
 - Dùng `ink-text-input` cho ô nhập liệu
 - Prompt `>` màu xanh lá (vàng khi loading)
-- Placeholder thay đổi theo trạng thái loading
-- Khi submit: gọi `onSend(value)` rồi reset input
+- Parse input: lệnh `/` → gọi `onCommand`, text thường → gọi `onSend`
+- Disable input khi `isLoading === true`
+
+### `src/ui/components/ProviderMenu.tsx` – Danh sách Provider
+- Hiển thị danh sách provider đã cấu hình
+- Scroll 5 items/trang, ký hiệu ↑↓
+- Phím tắt: `A` thêm mới, `Esc` quay lại
+
+### `src/ui/components/ProviderTypeSelect.tsx` – Chọn loại Provider
+- Hiển thị 4 loại provider: OpenAI, Anthropic, Google Gemini, Cohere
+- Mỗi loại có mô tả ngắn
+
+### `src/ui/components/ProviderAddForm.tsx` – Form thêm Provider
+- Các trường: Tên, Base URL, API Key, Default Model
+- Tự động điền Base URL mặc định theo loại provider
+- Validate: không được để trống các trường bắt buộc
+
+### `src/ui/components/ModelMenu.tsx` – Danh sách Model
+- Hiển thị danh sách model của provider hiện tại
+- Scroll 5 items/trang
+- Chức năng: chọn model, đặt làm mặc định, xóa model, fetch model từ API, thêm model thủ công
+
+### `src/ui/components/ModelAddInput.tsx` – Form thêm Model
+- Nhập tên model mới
+- Validate: không trùng với model đã có, không được để trống
 
 ### File dữ liệu tĩnh
 | File | Mục đích |
@@ -243,7 +276,6 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 | React | ^18.2.0 | UI framework |
 | Ink | ^4.1.0 | React renderer cho terminal |
 | ink-text-input | ^6.0.0 | Component input text cho Ink |
-| ink-spinner | (built-in) | Spinner loading |
 | axios | ^1.16.0 | HTTP client gọi AI proxy |
 | TypeScript | ^5.0.3 | Type system |
 | tsx | ^4.21.0 | Dev runner TypeScript |
@@ -264,17 +296,31 @@ App.handleSendMessage(input)
         ├─► setLoading(true)
         │
         ▼
-sendChatMessage([...messages, userMessage])
+sendChatMessage([...messages, userMessage]) → ChatCompletionResult
         │
-        ├─► POST → http://127.0.0.1:8080/v1/chat/completions
+        │  { content, reasoning?, usage? }
         │
         ▼
-Response content
+Tạo assistantMessage: Message
+  - content = result.content
+  - reasoningContent = result.reasoning
+  - reasoningTokens = result.usage?.reasoningTokens
+  - completionTokens = result.usage ? usage.completionTokens - reasoningTokens : undefined
+  - totalTokens = result.usage?.totalTokens
         │
-        ├─► Tạo assistantMessage: Message
         ├─► setMessages(prev => [...prev, assistantMessage])
         ├─► setLoading(false)
         │
         ▼
 TerminalMid re-render ← messages updated
+  → ResponseBlock: hiển thị content + reasoning toggle + token count
 TerminalBottom re-render ← isLoading = false
+```
+
+## Phím tắt
+
+| Phím | Chế độ | Chức năng |
+|------|--------|-----------|
+| `Ctrl+O` | Chat | Toggle tất cả khối suy nghĩ (reasoning) của assistant |
+| `Esc` | Provider/Model menu | Quay lại màn hình trước |
+| `Enter` | Chat | Gửi tin nhắn |

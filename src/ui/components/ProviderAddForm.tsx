@@ -139,16 +139,6 @@ const ProviderAddForm = ({ type, onSave, onBack }: ProviderAddFormProps) => {
       }
     }
 
-    // Phím Q luôn có thể dùng để quay lại
-    if (input === 'q' || input === 'Q') {
-      if (currentStepIdx === 0) {
-        onBack();
-      } else {
-        setCurrentStepIdx((prev) => prev - 1);
-        setTestResult(null);
-      }
-    }
-
     // Phím Escape quay lại
     if (key.escape) {
       if (currentStepIdx === 0) {
@@ -304,8 +294,8 @@ const ProviderAddForm = ({ type, onSave, onBack }: ProviderAddFormProps) => {
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>
           {currentStep === 'confirm'
-            ? 'Nhấn T để test, S để lưu, Q để sửa lại'
-            : `Nhấn Enter để xác nhận, Q để ${currentStepIdx === 0 ? 'quay lại' : 'quay lại bước trước'}`}
+            ? 'Nhấn T để test, S để lưu, Esc để sửa lại'
+            : `Nhấn Enter để xác nhận, Esc để ${currentStepIdx === 0 ? 'quay lại' : 'quay lại bước trước'}`}
         </Text>
       </Box>
     </Box>

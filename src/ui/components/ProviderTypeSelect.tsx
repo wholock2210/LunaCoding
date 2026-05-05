@@ -37,7 +37,7 @@ const PROVIDER_OPTIONS: Array<{
 const ProviderTypeSelect = ({ onSelect, onBack }: ProviderTypeSelectProps) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     if (key.upArrow) {
       setSelectedIndex((prev) => (prev > 0 ? prev - 1 : PROVIDER_OPTIONS.length - 1));
     } else if (key.downArrow) {
@@ -47,7 +47,7 @@ const ProviderTypeSelect = ({ onSelect, onBack }: ProviderTypeSelectProps) => {
       if (selected) {
         onSelect(selected.type);
       }
-    } else if (input === 'q' || input === 'Q') {
+    } else if (key.escape) {
       onBack();
     }
   });
@@ -90,7 +90,7 @@ const ProviderTypeSelect = ({ onSelect, onBack }: ProviderTypeSelectProps) => {
           <Text color="green" bold>Enter</Text> để xác nhận
         </Text>
         <Text dimColor>
-          Nhấn <Text color="yellow" bold>Q</Text> để quay lại danh sách provider
+          Nhấn <Text color="yellow" bold>Esc</Text> để quay lại danh sách provider
         </Text>
       </Box>
     </Box>

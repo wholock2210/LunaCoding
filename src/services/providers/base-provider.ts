@@ -1,4 +1,4 @@
-import type { Message, TestConnectionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
 
 /**
  * Abstract base class cho tất cả các provider.
@@ -32,7 +32,7 @@ export abstract class BaseProvider {
    * @param model - Model ID (nếu không truyền, dùng defaultModel)
    * @returns Nội dung phản hồi từ AI
    */
-  abstract chat(messages: Message[], model?: string): Promise<string>;
+  abstract chat(messages: Message[], model?: string): Promise<ChatCompletionResult>;
 
   /**
    * Lấy danh sách model từ endpoint /models của provider.

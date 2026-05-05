@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
-import type { Message, TestConnectionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
 
 interface GeminiPart {
   text: string;
@@ -21,6 +21,11 @@ interface GeminiGenerateResponse {
       parts?: GeminiPart[];
     };
   }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
 }
 
 interface GeminiModelInfo {
@@ -80,7 +85,7 @@ export class GoogleGeminiProvider extends BaseProvider {
     return result;
   }
 
-  async chat(messages: Message[], model?: string): Promise<string> {
+  async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {
     const modelId = model ?? this.defaultModel;
     const contents = this.toGeminiContents(messages);
 
@@ -95,15 +100,15 @@ export class GoogleGeminiProvider extends BaseProvider {
         },
       );
 
-      const candidate = response.data?.candidates?.[0];
+      const data = response.data;
+      const candidate = data?.candidates?.[0];
       const parts = candidate?.content?.parts;
 
       if (!parts || parts.length === 0) {
-        // Gemini có thể chặn phản hồi (safety filters)
-        if (response.data?.candidates && response.data.candidates.length === 0) {
-          return 'LunaCoding: Phản hồi bị chặn bởi bộ lọc an toàn của Google Gemini.';
+        if (data?.candidates && data.candidates.length === 0) {
+          return { content: 'LunaCoding: Phản hồi bị chặn bởi bộ lọc an toàn của Google Gemini.' };
         }
-        return 'LunaCoding: Không nhận được phản hồi từ AI.';
+        return { content: 'LunaCoding: Không nhận được phản hồi từ AI.' };
       }
 
       const text = parts
@@ -111,9 +116,21 @@ export class GoogleGeminiProvider extends BaseProvider {
         .map((p) => p.text)
         .join('\n');
 
-      return text || 'LunaCoding: Phản hồi rỗng từ AI.';
+      const content = text || 'LunaCoding: Phản hồi rỗng từ AI.';
+
+      const usageMeta = data?.usageMetadata;
+      const usage = usageMeta
+        ? {
+            promptTokens: usageMeta.promptTokenCount ?? 0,
+            completionTokens: usageMeta.candidatesTokenCount ?? 0,
+            reasoningTokens: 0,
+            totalTokens: usageMeta.totalTokenCount ?? 0,
+          }
+        : undefined;
+
+      return { content, usage };
     } catch (error: unknown) {
-      return this.formatError(error);
+      return { content: this.formatError(error) };
     }
   }
 
