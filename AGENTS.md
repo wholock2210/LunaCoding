@@ -49,7 +49,6 @@ npm run typecheck
 npm test
 ```
 
-**Lưu ý:** Ứng dụng cần AI proxy chạy tại `http://127.0.0.1:8080` để hoạt động. Nếu proxy không chạy, app vẫn mở được nhưng sẽ báo lỗi kết nối khi gửi tin nhắn.
 
 ## Component Tree & Data Flow
 
@@ -106,9 +105,6 @@ npm test
 - Màu sắc: tên màu chuẩn (red, green, yellow, blue, magenta, cyan, white, gray) hoặc mã hex
 
 ### API Service (chat.ts)
-- Endpoint: `http://127.0.0.1:8080/v1/chat/completions`
-- Model: `DeepSeek-R1-expert-search`
-- API Key: `123456`
 - Request format: `{ model, messages: [{ role, content }] }`
 - Response format: `{ choices: [{ message: { content } }] }`
 - Xử lý lỗi: trả về string thông báo lỗi (không throw), để UI hiển thị
