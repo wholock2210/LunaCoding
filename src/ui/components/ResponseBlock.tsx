@@ -8,6 +8,7 @@ interface ResponseBlockProps {
   completionTokens?: number;
   totalTokens?: number;
   isThinkingExpanded: boolean;
+  isStreaming?: boolean;
 }
 
 const thinkingColor = '#888888';
@@ -20,6 +21,7 @@ const ResponseBlock = ({
   completionTokens,
   totalTokens,
   isThinkingExpanded,
+  isStreaming = false,
 }: ResponseBlockProps) => {
   const hasReasoning = reasoningContent && reasoningContent.length > 0;
 
@@ -31,8 +33,9 @@ const ResponseBlock = ({
           <Box flexDirection="row">
             <Text color={thinkingColor}>
               {isThinkingExpanded ? '▼' : '▶'} Suy nghĩ
+              {isStreaming && reasoningTokens === undefined ? ' (đang cập nhật...)' : ''}
             </Text>
-            {reasoningTokens !== undefined && (
+            {!isStreaming && reasoningTokens !== undefined && (
               <Text color={thinkingColor}> ({reasoningTokens} tk)</Text>
             )}
             <Text color={thinkingColor}> </Text>
@@ -58,10 +61,10 @@ const ResponseBlock = ({
         <Text> </Text>
         <Box flexDirection="column" flexGrow={1}>
           <Box flexDirection="row">
-            <Text wrap="wrap">{content}</Text>
+            <Text wrap="wrap">{content}{isStreaming ? '▍' : ''}</Text>
           </Box>
-          {/* Token info footer */}
-          {(completionTokens !== undefined || totalTokens !== undefined) && (
+          {/* Token info footer — ẩn khi đang streaming */}
+          {!isStreaming && (completionTokens !== undefined || totalTokens !== undefined) && (
             <Box flexDirection="row" justifyContent="flex-end" marginTop={0}>
               {completionTokens !== undefined && (
                 <Text dimColor>

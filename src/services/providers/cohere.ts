@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
-import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult, ChatStreamChunk } from '../types.js';
 
 interface CohereApiMessage {
   role: 'USER' | 'CHATBOT';
@@ -48,7 +48,7 @@ export class CohereProvider extends BaseProvider {
     return 'cohere';
   }
 
-  static override getDefaultBaseUrl(): string {
+  static getDefaultBaseUrl(): string {
     return 'https://api.cohere.com';
   }
 
@@ -81,6 +81,18 @@ export class CohereProvider extends BaseProvider {
     }
 
     return result;
+  }
+
+  async *chatStream(messages: Message[], model?: string): AsyncIterable<ChatStreamChunk> {
+    // Fallback: gọi chat() rồi yield toàn bộ content như 1 chunk
+    const result = await this.chat(messages, model);
+    if (result.content) {
+      yield { type: 'content', text: result.content };
+    }
+    yield {
+      type: 'done',
+      usage: result.usage || { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, totalTokens: 0 },
+    };
   }
 
   async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {

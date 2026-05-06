@@ -1,4 +1,4 @@
-import type { Message, TestConnectionResult, ChatCompletionResult } from '../types.js';
+import type { Message, TestConnectionResult, ChatCompletionResult, ChatStreamChunk } from '../types.js';
 
 /**
  * Abstract base class cho tất cả các provider.
@@ -21,11 +21,6 @@ export abstract class BaseProvider {
   /** Trả về loại provider */
   abstract getType(): string;
 
-  /** Trả về URL mặc định nếu người dùng không nhập */
-  static getDefaultBaseUrl(): string {
-    return '';
-  }
-
   /**
    * Gửi chat request đến provider.
    * @param messages - Lịch sử chat
@@ -33,6 +28,14 @@ export abstract class BaseProvider {
    * @returns Nội dung phản hồi từ AI
    */
   abstract chat(messages: Message[], model?: string): Promise<ChatCompletionResult>;
+
+  /**
+   * Gửi chat request dạng streaming đến provider.
+   * @param messages - Lịch sử chat
+   * @param model - Model ID (nếu không truyền, dùng defaultModel)
+   * @returns AsyncIterable các chunk reasoning/content/done
+   */
+  abstract chatStream(messages: Message[], model?: string): AsyncIterable<ChatStreamChunk>;
 
   /**
    * Lấy danh sách model từ endpoint /models của provider.

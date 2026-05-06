@@ -23,6 +23,8 @@ export type UiMode =
 interface ChatModeProps {
 	messages: Message[];
 	isLoading: boolean;
+	isStreaming: boolean;
+	streamingPhase: 'thinking' | 'responding' | null;
 	expandedThinkingIndices: Set<number>;
 }
 
@@ -79,7 +81,9 @@ interface TerminalMidProps {
 
 // ─── Component chat ───────────────────────────────────────────────────
 
-const ChatView = ({ messages, isLoading, expandedThinkingIndices }: ChatModeProps) => {
+const ChatView = ({ messages, isLoading, isStreaming, streamingPhase, expandedThinkingIndices }: ChatModeProps) => {
+	const showLoadingIndicator = isLoading || isStreaming;
+
 	return (
 		<Box
 			flexDirection="column"
@@ -95,38 +99,49 @@ const ChatView = ({ messages, isLoading, expandedThinkingIndices }: ChatModeProp
 					</Text>
 				</Box>
 			) : (
-				messages.map((msg, index) =>
-					msg.role === 'user' ? (
-						<Box
-							key={index}
-							marginBottom={1}
-							flexDirection="row"
-							padding={1}
-						>
-							<Text color="white" bold>
-								❯{' '}
-							</Text>
-							<Text color="white" wrap="wrap">
-								{msg.content}
-							</Text>
-						</Box>
-					) : (
-						<ResponseBlock
-							key={index}
-							content={msg.content}
-							reasoningContent={msg.reasoningContent}
-							reasoningTokens={msg.reasoningTokens}
-							completionTokens={msg.completionTokens}
-							totalTokens={msg.totalTokens}
-							isThinkingExpanded={expandedThinkingIndices.has(index)}
-						/>
-					),
-				)
+				<Box flexDirection="column" flexGrow={1}>
+					{messages.map((msg, index) =>
+						msg.role === 'user' ? (
+							<Box
+								key={index}
+								marginBottom={1}
+								flexDirection="row"
+								padding={1}
+							>
+								<Text color="white" bold>
+									❯{' '}
+								</Text>
+								<Text color="white" wrap="wrap">
+									{msg.content}
+								</Text>
+							</Box>
+						) : (
+							<ResponseBlock
+								key={index}
+								content={msg.content}
+								reasoningContent={msg.reasoningContent}
+								reasoningTokens={msg.reasoningTokens}
+								completionTokens={msg.completionTokens}
+								totalTokens={msg.totalTokens}
+								isThinkingExpanded={expandedThinkingIndices.has(index)}
+								isStreaming={isStreaming && index === messages.length - 1}
+							/>
+						),
+					)}
+				</Box>
 			)}
-			{isLoading && (
-				<Box flexDirection="column" marginTop={1}>
-					<LoadingIndicator text="đang suy nghĩ..." />
-					<Text dimColor>  └ (ctrl + o để xem suy nghĩ)</Text>
+			{showLoadingIndicator && (
+				<Box flexDirection="column">
+					{streamingPhase === 'thinking' ? (
+						<LoadingIndicator text="thinking..." />
+					) : streamingPhase === 'responding' ? (
+						<LoadingIndicator text="responding..." />
+					) : (
+						<Box flexDirection="column">
+							<LoadingIndicator text="đang suy nghĩ..." />
+							<Text dimColor>  └ (ctrl + o để xem suy nghĩ)</Text>
+						</Box>
+					)}
 				</Box>
 			)}
 		</Box>
@@ -150,6 +165,8 @@ const TerminalMid = ({
 				<ChatView
 					messages={chatProps.messages}
 					isLoading={chatProps.isLoading}
+					isStreaming={chatProps.isStreaming}
+					streamingPhase={chatProps.streamingPhase}
 					expandedThinkingIndices={chatProps.expandedThinkingIndices}
 				/>
 			);

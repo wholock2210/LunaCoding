@@ -3,7 +3,7 @@ import { Box, useInput } from 'ink';
 import TerminalTop from './components/TerminalTop.js';
 import TerminalMid from './components/TerminalMid.js';
 import TerminalBottom from './components/TerminalBottom.js';
-import { sendChatMessage } from '../services/chat.js';
+import { sendChatMessageStream } from '../services/chat.js';
 import {
   loadConfig,
   setCurrentProvider,
@@ -18,6 +18,7 @@ import type {
   UiMode,
   ProviderConfig,
   ProviderType,
+  ChatStreamChunk,
 } from '../services/types.js';
 
 const App = () => {
@@ -27,6 +28,8 @@ const App = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedThinkingIndices, setExpandedThinkingIndices] = useState<Set<number>>(new Set());
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingPhase, setStreamingPhase] = useState<'thinking' | 'responding' | null>(null);
 
   // ============================================================
   // UI Mode & Provider state
@@ -58,6 +61,21 @@ const App = () => {
   // ============================================================
   useInput((input, key) => {
     if (key.ctrl && input === 'o') {
+      // Khi đang streaming, Ctrl+O toggle ẩn/hiện thinking của message đang stream
+      if (isStreaming) {
+        const streamingIdx = messages.length - 1; // message cuối cùng là message đang stream
+        setExpandedThinkingIndices(prev => {
+          const next = new Set(prev);
+          if (next.has(streamingIdx)) {
+            next.delete(streamingIdx);
+          } else {
+            next.add(streamingIdx);
+          }
+          return next;
+        });
+        return;
+      }
+
       const reasoningIndices: number[] = [];
       messages.forEach((msg, idx) => {
         if (msg.role === 'assistant' && msg.reasoningContent) {
@@ -148,25 +166,102 @@ const App = () => {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setIsLoading(true);
-
-    const result = await sendChatMessage([...messages, userMessage]);
-
-    const assistantMessage: Message = {
+    // Tạo placeholder assistantMessage với content rỗng
+    const placeholder: Message = {
       role: 'assistant',
-      content: result.content,
-      reasoningContent: result.reasoning,
-      reasoningTokens: result.usage?.reasoningTokens,
-      completionTokens: result.usage
-        ? result.usage.completionTokens - (result.usage.reasoningTokens ?? 0)
-        : undefined,
-      totalTokens: result.usage?.totalTokens,
+      content: '',
+      reasoningContent: '',
+      reasoningTokens: undefined,
+      completionTokens: undefined,
+      totalTokens: undefined,
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, assistantMessage]);
+    setMessages((prev) => [...prev, userMessage, placeholder]);
+    setIsLoading(true);
+    setIsStreaming(true);
+    setStreamingPhase(null);
+    // Mặc định hiển thị thinking khi streaming
+    setExpandedThinkingIndices(prev => {
+      const next = new Set(prev);
+      next.add(messages.length + 1); // index của placeholder
+      return next;
+    });
+
+    const allMessages = [...messages, userMessage];
+    const placeholderIdx = allMessages.length; // index của placeholder trong messages
+
+    let thinkingText = '';
+    let responseText = '';
+    let finalUsage: ChatStreamChunk['usage'] | undefined;
+
+    try {
+      for await (const chunk of sendChatMessageStream(allMessages)) {
+        if (chunk.type === 'reasoning') {
+          if (streamingPhase !== 'thinking') {
+            setStreamingPhase('thinking');
+          }
+          thinkingText += chunk.text ?? '';
+          setMessages((prev) => {
+            const next = [...prev];
+            if (next[placeholderIdx]) {
+              next[placeholderIdx] = {
+                ...next[placeholderIdx],
+                reasoningContent: thinkingText,
+              };
+            }
+            return next;
+          });
+        } else if (chunk.type === 'content') {
+          if (streamingPhase !== 'responding') {
+            setStreamingPhase('responding');
+          }
+          responseText += chunk.text ?? '';
+          setMessages((prev) => {
+            const next = [...prev];
+            if (next[placeholderIdx]) {
+              next[placeholderIdx] = {
+                ...next[placeholderIdx],
+                content: responseText,
+              };
+            }
+            return next;
+          });
+        } else if (chunk.type === 'done') {
+          finalUsage = chunk.usage;
+          setStreamingPhase(null);
+        }
+      }
+    } catch {
+      setStreamingPhase(null);
+    }
+
+    // Cập nhật lần cuối với usage hoặc thông báo lỗi nếu stream không trả về gì
+    setMessages((prev) => {
+      const next = [...prev];
+      if (next[placeholderIdx]) {
+        // Nếu stream không trả về nội dung nào, hiển thị thông báo lỗi
+        const hasContent = responseText.length > 0 || thinkingText.length > 0;
+        const finalContent = hasContent
+          ? responseText
+          : 'LunaCoding: Không thể kết nối đến provider hoặc stream bị gián đoạn. Vui lòng thử lại.';
+
+        next[placeholderIdx] = {
+          ...next[placeholderIdx],
+          content: finalContent,
+          reasoningTokens: finalUsage?.reasoningTokens,
+          completionTokens: finalUsage
+            ? finalUsage.completionTokens - (finalUsage.reasoningTokens ?? 0)
+            : undefined,
+          totalTokens: finalUsage?.totalTokens,
+        };
+      }
+      return next;
+    });
+
     setIsLoading(false);
+    setIsStreaming(false);
+    setStreamingPhase(null);
   };
 
   // ============================================================
@@ -323,6 +418,8 @@ const App = () => {
         chatProps={{
           messages,
           isLoading,
+          isStreaming,
+          streamingPhase,
           expandedThinkingIndices,
         }}
         providerListProps={{

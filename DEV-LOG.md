@@ -179,3 +179,72 @@ Tích hợp hiển thị quá trình suy nghĩ (reasoning/thinking) của model 
 - Nhấn `Ctrl+O` để toggle tất cả khối suy nghĩ trong lịch sử chat
 - Mỗi phản hồi assistant hiển thị token count đầy đủ
 - Khi AI đang trả lời, loading text là "đang suy nghĩ..." kèm gợi ý phím tắt
+
+## [5] 2026-05-06 — Streaming (Thinking + Response)
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Triển khai streaming cho cả thinking (reasoning) và response (nội dung chính), giúp người dùng thấy nội dung theo thời gian thực thay vì phải chờ toàn bộ phản hồi hoàn tất.
+
+### Các thay đổi
+
+#### 1. Types (`src/services/types.ts`)
+- Thêm `ChatStreamChunk` interface với các type: `'reasoning' | 'content' | 'done'`
+- Mỗi chunk có thể chứa `text?` và `usage?`
+
+#### 2. Base Provider (`src/services/providers/base-provider.ts`)
+- Thêm abstract method `chatStream(messages, model?): AsyncIterable<ChatStreamChunk>`
+- Tất cả provider bắt buộc phải implement
+
+#### 3. OpenAI Compatible Provider (`src/services/providers/openai-compatible.ts`)
+- Implement `chatStream()` với SSE parsing:
+  - Gọi API với `"stream": true`, `responseType: 'stream'`
+  - Parse từng dòng SSE (`data: {...}`)
+  - Phân biệt chunk: `delta.reasoning_content` → reasoning, `delta.content` → content
+  - Chunk có `usage` → done kèm token count
+  - Fallback done khi stream kết thúc hoặc lỗi
+
+#### 4. Chat Service (`src/services/chat.ts`)
+- Thêm `sendChatMessageStream(messages): AsyncIterable<ChatStreamChunk>`
+- Async generator gọi `provider.chatStream()` và yield từng chunk
+
+#### 5. App State (`src/ui/app.tsx`)
+- Thêm state: `isStreaming: boolean`, `streamingPhase: 'thinking' | 'responding' | null`
+- Viết lại `handleSendMessage`:
+  - Tạo placeholder assistantMessage (content rỗng) → append ngay vào messages
+  - `for await (chunk)` cập nhật trực tiếp `messages[N].content` và `messages[N].reasoningContent`
+  - Khi gặp chunk reasoning đầu tiên → `setStreamingPhase('thinking')`
+  - Khi gặp chunk content đầu tiên → `setStreamingPhase('responding')`
+  - Khi chunk done → `setStreamingPhase(null)`, cập nhật token usage
+- `Ctrl+O` khi đang streaming: toggle thinking của message đang được stream
+
+#### 6. TerminalMid (`src/ui/components/TerminalMid.tsx`)
+- `ChatModeProps` thêm `isStreaming: boolean`, `streamingPhase: 'thinking' | 'responding' | null`
+- `ChatView`: LoadingIndicator đặt ở dưới cùng khung chat
+  - `streamingPhase === 'thinking'` → hiển thị `<LoadingIndicator text="thinking..." />`
+  - `streamingPhase === 'responding'` → hiển thị `<LoadingIndicator text="responding..." />`
+  - Không streaming nhưng isLoading → hiển thị `<LoadingIndicator text="đang suy nghĩ..." />` (fallback)
+- `ResponseBlock` nhận thêm prop `isStreaming` (true cho message cuối cùng đang stream)
+
+#### 7. ResponseBlock (`src/ui/components/ResponseBlock.tsx`)
+- Thêm prop `isStreaming?: boolean`
+- Khi `isStreaming`:
+  - Hiển thị cursor `▍` nhấp nháy ở cuối content
+  - Ẩn token count footer (sẽ hiện khi stream hoàn tất)
+  - Thinking header hiển thị "(đang cập nhật...)" thay vì token count
+
+#### 8. Fallback cho Anthropic, Cohere, Gemini
+- Cả 3 provider implement `chatStream()` dạng fallback:
+  - Gọi `chat()` để lấy toàn bộ response
+  - Yield 1 chunk `content` với toàn bộ nội dung
+  - Yield 1 chunk `done` với usage
+- Không hỗ trợ streaming thực sự, nhưng đảm bảo UI hoạt động nhất quán
+
+### Trải nghiệm người dùng
+| Thời điểm | Hiển thị |
+|-----------|----------|
+| Vừa gửi tin nhắn | Placeholder `● ▍` xuất hiện ngay |
+| Model đang suy nghĩ | `▼ Suy nghĩ (đang cập nhật...)` + reasoning hiện dần |
+| Model đang trả lời | Nội dung response xuất hiện từng chữ, cursor `▍` nhấp nháy |
+| Ctrl+O lúc streaming | Toggle ẩn/hiện phần thinking của message đang stream |
+| Hoàn tất | Token count xuất hiện, cursor biến mất |

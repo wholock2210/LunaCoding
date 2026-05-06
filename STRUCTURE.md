@@ -103,6 +103,7 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 |-----------|--------|-------|
 | `Message` | `role`, `content`, `timestamp`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?` | Tin nhắn trong lịch sử chat, hỗ trợ reasoning/thinking |
 | `ChatCompletionResult` | `content`, `reasoning?`, `usage?` | Kết quả trả về từ provider chat |
+| `ChatStreamChunk` | `type: 'reasoning' \| 'content' \| 'done'`, `text?`, `usage?` | Mỗi chunk trong streaming response |
 | `Usage` | `promptTokens`, `completionTokens`, `reasoningTokens`, `totalTokens` | Thống kê token usage |
 | `ProviderConfig` | `id`, `name`, `type`, `apiKey`, `endpoint?`, `models` | Cấu hình một provider AI |
 | `ProviderType` | `'openai' \| 'anthropic' \| 'google-gemini' \| 'cohere'` | Loại provider được hỗ trợ |
@@ -124,6 +125,9 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - **Hàm:** `sendChatMessage(messages: Message[]): Promise<ChatCompletionResult>`
 - Trả về `ChatCompletionResult` với `content`, `reasoning` (nếu có), và `usage` (nếu có)
 - Nếu chưa có provider, trả về `{ content: '...hướng dẫn...' }`
+- **Hàm:** `sendChatMessageStream(messages: Message[]): AsyncIterable<ChatStreamChunk>`
+- Async generator gọi `provider.chatStream()` và yield từng chunk reasoning/content/done
+- Nếu chưa có provider, yield chunk done rỗng
 
 ### `src/services/providers/` – Hệ thống Multi-Provider
 
@@ -131,6 +135,7 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Abstract class `BaseProvider` định nghĩa interface chung:
   - `getType(): string` — loại provider
   - `chat(messages, model?): Promise<ChatCompletionResult>` — gửi chat request, trả về kết quả có reasoning + usage
+  - `chatStream(messages, model?): AsyncIterable<ChatStreamChunk>` — gửi chat request dạng streaming, trả về các chunk reasoning/content/done
   - `listModels(): Promise<string[]>` — lấy danh sách model
   - `testConnection(): Promise<TestConnectionResult>` — kiểm tra kết nối
 - `static getDefaultBaseUrl(): string` — URL mặc định cho từng provider
@@ -144,37 +149,46 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Endpoint: `{baseURL}/v1/chat/completions`
 - **Parse reasoning_content**: từ `message.reasoning_content`
 - **Parse usage**: `prompt_tokens`, `completion_tokens`, `completion_tokens_details.reasoning_tokens`, `total_tokens`
+- **Streaming**: `chatStream()` gọi API với `stream: true`, parse SSE chunks (`delta.reasoning_content` → reasoning, `delta.content` → content, chunk có `usage` → done)
 
 #### `anthropic.ts` – Anthropic Provider
 - Hỗ trợ Anthropic Claude models
 - Endpoint: `https://api.anthropic.com/v1/messages`
 - Header: `x-api-key`, `anthropic-version: 2023-06-01`
+- **Streaming**: `chatStream()` fallback — gọi `chat()` rồi yield toàn bộ content + done
 
 #### `google-gemini.ts` – Google Gemini Provider
 - Hỗ trợ Google Gemini models
 - Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
 - API key truyền qua query param `?key=`
+- **Streaming**: `chatStream()` fallback — gọi `chat()` rồi yield toàn bộ content + done
 
 #### `cohere.ts` – Cohere Provider
 - Hỗ trợ Cohere models
 - Endpoint: `https://api.cohere.com/v2/chat`
 - Role: `USER` / `CHATBOT` (viết hoa)
+- **Streaming**: `chatStream()` fallback — gọi `chat()` rồi yield toàn bộ content + done
 
 ### `src/ui/app.tsx` – Root Component
 - **State:**
   - `messages: Message[]` — lịch sử chat
   - `isLoading: boolean` — trạng thái đang chờ AI trả lời
+  - `isStreaming: boolean` — trạng thái đang streaming response
+  - `streamingPhase: 'thinking' | 'responding' | null` — giai đoạn streaming hiện tại
   - `expandedThinkingIndices: Set<number>` — index của các message đang mở thinking
   - `uiMode: UiMode` — chế độ giao diện hiện tại
   - Các state cho provider/model management
 - **Keyboard shortcut:**
-  - `Ctrl+O`: toggle tất cả khối suy nghĩ (mở tất cả nếu có block đang đóng, đóng tất cả nếu tất cả đang mở)
-- **Luồng xử lý gửi tin nhắn:**
+  - `Ctrl+O`: toggle tất cả khối suy nghĩ (mở tất cả nếu có block đang đóng, đóng tất cả nếu tất cả đang mở); khi đang streaming, toggle thinking của message đang stream
+- **Luồng xử lý gửi tin nhắn (streaming):**
   1. Tạo `userMessage` từ input
-  2. Append vào `messages`, `setLoading(true)`
-  3. Gọi `sendChatMessage([...messages, userMessage])` → `ChatCompletionResult`
-  4. Tạo `assistantMessage` với `content`, `reasoningContent`, `reasoningTokens`, `completionTokens`, `totalTokens`
-  5. Append vào `messages`, `setLoading(false)`
+  2. Tạo placeholder `assistantMessage` (content rỗng) → append cùng userMessage
+  3. `setIsStreaming(true)`, `setStreamingPhase(null)`
+  4. `for await (chunk)` từ `sendChatMessageStream()`:
+     - reasoning chunk → `setStreamingPhase('thinking')`, cập nhật `reasoningContent`
+     - content chunk → `setStreamingPhase('responding')`, cập nhật `content`
+     - done chunk → `setStreamingPhase(null)`, cập nhật token usage
+  5. `setIsLoading(false)`, `setIsStreaming(false)`
 
 ### `src/ui/components/TerminalTop.tsx` – Header
 - Đọc 2 file ASCII art (`ascii-art.txt`, `ascii-name.txt`)
@@ -204,19 +218,22 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   | `provider-add-form` | `ProviderAddForm` | Form nhập thông tin provider mới |
   | `model-list` | `ModelMenu` / `ModelAddInput` | Danh sách model hoặc form thêm model |
 - **ChatView (internal component):**
-  - Nhận `messages`, `isLoading`, `expandedThinkingIndices`
+  - Nhận `messages`, `isLoading`, `isStreaming`, `streamingPhase`, `expandedThinkingIndices`
   - Trạng thái rỗng: hiển thị "Chưa có tin nhắn nào..."
   - User message: `❯` prefix + nội dung trắng
-  - Assistant message: render qua `<ResponseBlock>` với `isThinkingExpanded` từ `expandedThinkingIndices`
-  - Khi `isLoading`: hiển thị `<LoadingIndicator text="đang suy nghĩ..." />` + dòng `ctrl + o để xem suy nghĩ`
+  - Assistant message: render qua `<ResponseBlock>` với `isThinkingExpanded` và `isStreaming` (true cho message cuối cùng đang stream)
+  - **LoadingIndicator** đặt ở dưới cùng khung chat, thay đổi theo `streamingPhase`:
+    - `'thinking'` → `<LoadingIndicator text="thinking..." />`
+    - `'responding'` → `<LoadingIndicator text="responding..." />`
+    - Không streaming nhưng `isLoading` → `<LoadingIndicator text="đang suy nghĩ..." />`
 
 ### `src/ui/components/ResponseBlock.tsx` – Hiển thị phản hồi assistant
-- Nhận props: `content`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?`, `isThinkingExpanded`
+- Nhận props: `content`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?`, `isThinkingExpanded`, `isStreaming?`
 - **Thinking toggle row:** Khi có `reasoningContent`, hiển thị:
-  - `▶ Suy nghĩ (N tk)` hoặc `▼ Suy nghĩ (N tk)` + gợi ý `(ctrl+o để mở/đóng)`
+  - `▶ Suy nghĩ` hoặc `▼ Suy nghĩ` + `(đang cập nhật...)` khi streaming, hoặc `(N tk)` khi đã có token count
 - **Expanded thinking content:** Khi `isThinkingExpanded`, hiển thị toàn bộ `reasoningContent` với màu xám `#666666`, prefix `│`
-- **Main response:** `●` xám + nội dung wrap
-- **Token info footer:** `{completionTokens} tk phản hồi · tổng {totalTokens} tk` (dimColor, canh phải)
+- **Main response:** `●` xám + nội dung wrap + cursor `▍` khi đang streaming
+- **Token info footer:** `{completionTokens} tk phản hồi · tổng {totalTokens} tk` (dimColor, canh phải) — ẩn khi đang streaming
 
 ### `src/ui/components/LoadingIndicator.tsx` – Loading Indicator
 - Nhận prop: `text?: string` (mặc định: "LunaCoding đang trả lời")
@@ -321,6 +338,6 @@ TerminalBottom re-render ← isLoading = false
 
 | Phím | Chế độ | Chức năng |
 |------|--------|-----------|
-| `Ctrl+O` | Chat | Toggle tất cả khối suy nghĩ (reasoning) của assistant |
+| `Ctrl+O` | Chat | Toggle tất cả khối suy nghĩ (reasoning) của assistant; khi đang streaming, toggle thinking của message đang stream |
 | `Esc` | Provider/Model menu | Quay lại màn hình trước |
 | `Enter` | Chat | Gửi tin nhắn |
