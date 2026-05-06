@@ -8,6 +8,7 @@ interface TerminalBottomProps {
   onCommand: (command: string) => void;
   isLoading: boolean;
   uiMode: UiMode;
+  stableMode: boolean;
 }
 
 const TerminalBottom = ({
@@ -15,6 +16,7 @@ const TerminalBottom = ({
   onCommand,
   isLoading,
   uiMode,
+  stableMode,
 }: TerminalBottomProps) => {
   const [inputValue, setInputValue] = useState('');
 
@@ -69,17 +71,27 @@ const TerminalBottom = ({
     );
   }
 
-  // ── Chat mode: TextInput bình thường ──────────────────────────
+  // ── Chat mode: TextInput (có hoặc không stable mode) ────────
   return (
     <Box
       flexDirection="column"
       marginTop={1}
       padding={1}
       borderStyle="single"
-      borderColor={isLoading ? 'yellow' : 'green'}
+      borderColor={stableMode ? 'cyan' : isLoading ? 'yellow' : 'green'}
     >
+      {stableMode && (
+        <Box marginBottom={1}>
+          <Text color="cyan" bold>
+            🔒 Stable
+          </Text>
+          <Text dimColor> — UI đã đóng băng để bảo vệ IME. </Text>
+          <Text color="yellow">Ctrl+I</Text>
+          <Text dimColor> để tắt.</Text>
+        </Box>
+      )}
       <Box>
-        <Text color={isLoading ? 'yellow' : 'green'} bold>
+        <Text color={stableMode ? 'cyan' : isLoading ? 'yellow' : 'green'} bold>
           {'> '}
         </Text>
         <TextInput
@@ -104,4 +116,4 @@ const TerminalBottom = ({
   );
 };
 
-export default TerminalBottom;
+export default React.memo(TerminalBottom);

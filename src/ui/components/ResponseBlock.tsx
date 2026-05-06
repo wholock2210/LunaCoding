@@ -85,4 +85,4 @@ const ResponseBlock = ({
   );
 };
 
-export default ResponseBlock;
+export default React.memo(ResponseBlock);

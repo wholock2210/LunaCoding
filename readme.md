@@ -23,3 +23,25 @@ $ LunaCoding --help
     $ LunaCoding --name=Jane
     Hello, Jane
 ```
+
+## Hướng dẫn sử dụng IME tiếng Việt (fcitx-bamboo)
+
+Để gõ tiếng Việt bằng fcitx-bamboo mà không bị nhảy con trỏ:
+
+1. Đảm bảo fcitx-bamboo đã được cài đặt và chạy:
+   ```bash
+   fcitx5 --version
+   ```
+
+2. Khởi chạy LunaCoding với biến môi trường `LANG=vi_VN.UTF-8`:
+   ```bash
+   LANG=vi_VN.UTF-8 lunacoding
+   ```
+   Hoặc nếu dùng dev mode:
+   ```bash
+   LANG=vi_VN.UTF-8 npm run dev
+   ```
+
+3. Nếu vấn đề vẫn tồn tại, thử chạy trong tmux hoặc screen để có môi trường terminal ổn định hơn.
+
+**Giải thích kỹ thuật:** Ứng dụng đã được tối ưu để giảm re-render terminal (đồng hồ cập nhật mỗi 5 giây thay vì 1 giây). Việc set `LANG=vi_VN.UTF-8` giúp IME xác định đúng encoding và vị trí con trỏ.

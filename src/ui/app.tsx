@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, useInput } from 'ink';
 import TerminalTop from './components/TerminalTop.js';
 import TerminalMid from './components/TerminalMid.js';
@@ -26,6 +26,9 @@ const App = () => {
   // Chat state
   // ============================================================
   const [messages, setMessages] = useState<Message[]>([]);
+  // Ref giữ giá trị messages mới nhất, tránh re-render TerminalBottom khi streaming
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [isLoading, setIsLoading] = useState(false);
   const [expandedThinkingIndices, setExpandedThinkingIndices] = useState<Set<number>>(new Set());
   const [isStreaming, setIsStreaming] = useState(false);
@@ -45,12 +48,54 @@ const App = () => {
   const [showModelAddInput, setShowModelAddInput] = useState(false);
 
   // ============================================================
+  // Stable input mode – hỗ trợ IME tiếng Việt (fcitx-bamboo)
+  // Khi bật, giao diện chat sẽ không re-render trong lúc stream,
+  // giúp con trỏ IME không bị nhảy.
+  // ============================================================
+  const [stableMode, setStableMode] = useState(false);
+  // Ref cho stableMode và streamingPhase để đọc giá trị mới nhất
+  // bên trong useCallback dependency [] (tránh stale closure)
+  const stableModeRef = useRef(stableMode);
+  stableModeRef.current = stableMode;
+  const streamingPhaseRef = useRef(streamingPhase);
+  streamingPhaseRef.current = streamingPhase;
+
+  // Buffer tích luỹ stream chunk khi stable mode đang bật.
+  // Khi tắt stable mode, flush buffer này vào state để UI cập nhật.
+  const streamBufferRef = useRef<{
+    messages: Message[];
+    placeholderIdx: number;
+    thinkingText: string;
+    responseText: string;
+    finalUsage: ChatStreamChunk['usage'] | undefined;
+    finished: boolean;
+  } | null>(null);
+
+  // Khi stableMode chuyển từ true → false, flush buffer ra UI
+  useEffect(() => {
+    if (!stableMode && streamBufferRef.current) {
+      const buf = streamBufferRef.current;
+      // Cập nhật phase
+      if (buf.finished) {
+        setStreamingPhase(null);
+      } else if (buf.responseText.length > 0) {
+        setStreamingPhase('responding');
+      } else if (buf.thinkingText.length > 0) {
+        setStreamingPhase('thinking');
+      }
+      // Cập nhật messages
+      setMessages([...buf.messages]);
+      streamBufferRef.current = null;
+    }
+  }, [stableMode]);
+
+  // ============================================================
   // Load providers từ config khi mount
   // ============================================================
-  const refreshProviders = () => {
+  const refreshProviders = useCallback(() => {
     const config = loadConfig();
     setProviders(config.providers);
-  };
+  }, []);
 
   useEffect(() => {
     refreshProviders();
@@ -60,6 +105,11 @@ const App = () => {
   // Keyboard shortcut: Ctrl+O to toggle all reasoning blocks
   // ============================================================
   useInput((input, key) => {
+    if (key.ctrl && input === 'i') {
+      setStableMode((prev) => !prev);
+      return;
+    }
+
     if (key.ctrl && input === 'o') {
       // Khi đang streaming, Ctrl+O toggle ẩn/hiện thinking của message đang stream
       if (isStreaming) {
@@ -101,7 +151,7 @@ const App = () => {
   // ============================================================
   // Command handler — parse các lệnh /
   // ============================================================
-  const handleCommand = (command: string) => {
+  const handleCommand = useCallback((command: string) => {
     const normalized = command.trim().toLowerCase();
 
     if (normalized === '/provider' || normalized === '/providers') {
@@ -154,12 +204,12 @@ const App = () => {
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, unknownMsg]);
-  };
+  }, [refreshProviders]);
 
   // ============================================================
   // Chat handler
   // ============================================================
-  const handleSendMessage = async (input: string) => {
+  const handleSendMessage = useCallback(async (input: string) => {
     const userMessage: Message = {
       role: 'user',
       content: input,
@@ -178,117 +228,160 @@ const App = () => {
     };
 
     setMessages((prev) => [...prev, userMessage, placeholder]);
-    setIsLoading(true);
-    setIsStreaming(true);
-    setStreamingPhase(null);
-    // Mặc định hiển thị thinking khi streaming
-    setExpandedThinkingIndices(prev => {
-      const next = new Set(prev);
-      next.add(messages.length + 1); // index của placeholder
-      return next;
-    });
+    if (!stableModeRef.current) {
+      setIsLoading(true);
+      setIsStreaming(true);
+      setStreamingPhase(null);
+      // Mặc định hiển thị thinking khi streaming
+      setExpandedThinkingIndices(prev => {
+        const next = new Set(prev);
+        next.add(messagesRef.current.length + 1); // index của placeholder
+        return next;
+      });
+    }
 
-    const allMessages = [...messages, userMessage];
+    const allMessages = [...messagesRef.current, userMessage];
     const placeholderIdx = allMessages.length; // index của placeholder trong messages
 
     let thinkingText = '';
     let responseText = '';
     let finalUsage: ChatStreamChunk['usage'] | undefined;
 
+    let currentMessages = [...allMessages];
     try {
       for await (const chunk of sendChatMessageStream(allMessages)) {
         if (chunk.type === 'reasoning') {
-          if (streamingPhase !== 'thinking') {
-            setStreamingPhase('thinking');
-          }
           thinkingText += chunk.text ?? '';
-          setMessages((prev) => {
-            const next = [...prev];
-            if (next[placeholderIdx]) {
-              next[placeholderIdx] = {
-                ...next[placeholderIdx],
-                reasoningContent: thinkingText,
-              };
+          currentMessages[placeholderIdx] = {
+            ...currentMessages[placeholderIdx]!,
+            reasoningContent: thinkingText,
+          };
+          if (!stableModeRef.current) {
+            if (streamingPhaseRef.current !== 'thinking') {
+              streamingPhaseRef.current = 'thinking';
+              setStreamingPhase('thinking');
             }
-            return next;
-          });
-        } else if (chunk.type === 'content') {
-          if (streamingPhase !== 'responding') {
-            setStreamingPhase('responding');
+            setMessages([...currentMessages]);
           }
+        } else if (chunk.type === 'content') {
           responseText += chunk.text ?? '';
-          setMessages((prev) => {
-            const next = [...prev];
-            if (next[placeholderIdx]) {
-              next[placeholderIdx] = {
-                ...next[placeholderIdx],
-                content: responseText,
-              };
+          currentMessages[placeholderIdx] = {
+            ...currentMessages[placeholderIdx]!,
+            content: responseText,
+          };
+          if (!stableModeRef.current) {
+            if (streamingPhaseRef.current !== 'responding') {
+              streamingPhaseRef.current = 'responding';
+              setStreamingPhase('responding');
             }
-            return next;
-          });
+            setMessages([...currentMessages]);
+          }
         } else if (chunk.type === 'done') {
           finalUsage = chunk.usage;
-          setStreamingPhase(null);
+          streamingPhaseRef.current = null;
+          if (!stableModeRef.current) {
+            setStreamingPhase(null);
+          }
+        }
+
+        // Khi stable mode bật, lưu trạng thái vào buffer để flush sau
+        if (stableModeRef.current) {
+          streamBufferRef.current = {
+            messages: [...currentMessages],
+            placeholderIdx,
+            thinkingText,
+            responseText,
+            finalUsage,
+            finished: chunk.type === 'done',
+          };
         }
       }
     } catch {
-      setStreamingPhase(null);
+      streamingPhaseRef.current = null;
+      if (!stableModeRef.current) {
+        setStreamingPhase(null);
+      }
+    } finally {
+      // Sau khi stream kết thúc, luôn đồng bộ UI với dữ liệu cuối cùng
+      const finalContent = responseText.length > 0 || thinkingText.length > 0
+        ? responseText
+        : 'LunaCoding: Không thể kết nối đến provider hoặc stream bị gián đoạn. Vui lòng thử lại.';
+
+      if (stableModeRef.current) {
+        // Lưu trạng thái cuối vào buffer; useEffect sẽ flush khi tắt stable mode
+        streamBufferRef.current = {
+          messages: [...currentMessages],
+          placeholderIdx,
+          thinkingText,
+          responseText,
+          finalUsage,
+          finished: true,
+        };
+      } else {
+        setMessages((prev) => {
+          const next = [...prev];
+          if (next[placeholderIdx]) {
+            next[placeholderIdx] = {
+              ...next[placeholderIdx],
+              content: finalContent,
+              reasoningTokens: finalUsage?.reasoningTokens,
+              completionTokens: finalUsage
+                ? finalUsage.completionTokens - (finalUsage.reasoningTokens ?? 0)
+                : undefined,
+              totalTokens: finalUsage?.totalTokens,
+            };
+          }
+          return next;
+        });
+      }
     }
 
-    // Cập nhật lần cuối với usage hoặc thông báo lỗi nếu stream không trả về gì
-    setMessages((prev) => {
-      const next = [...prev];
-      if (next[placeholderIdx]) {
-        // Nếu stream không trả về nội dung nào, hiển thị thông báo lỗi
-        const hasContent = responseText.length > 0 || thinkingText.length > 0;
-        const finalContent = hasContent
-          ? responseText
-          : 'LunaCoding: Không thể kết nối đến provider hoặc stream bị gián đoạn. Vui lòng thử lại.';
-
-        next[placeholderIdx] = {
-          ...next[placeholderIdx],
-          content: finalContent,
-          reasoningTokens: finalUsage?.reasoningTokens,
-          completionTokens: finalUsage
-            ? finalUsage.completionTokens - (finalUsage.reasoningTokens ?? 0)
-            : undefined,
-          totalTokens: finalUsage?.totalTokens,
-        };
-      }
-      return next;
-    });
-
-    setIsLoading(false);
-    setIsStreaming(false);
-    setStreamingPhase(null);
-  };
+    if (!stableModeRef.current) {
+      setIsLoading(false);
+      setIsStreaming(false);
+      streamingPhaseRef.current = null;
+      setStreamingPhase(null);
+    } else {
+      // Khi stable mode bật, cập nhật trạng thái vào buffer để useEffect flush
+      streamBufferRef.current = {
+        ...(streamBufferRef.current ?? {
+          messages: [],
+          placeholderIdx,
+          thinkingText: '',
+          responseText: '',
+          finalUsage: undefined,
+          finished: false,
+        }),
+        finished: true,
+      };
+    }
+  }, []);
 
   // ============================================================
   // Provider handlers
   // ============================================================
 
   /** Chọn provider → set làm current → về chat */
-  const handleProviderSelect = (providerId: string) => {
+  const handleProviderSelect = useCallback((providerId: string) => {
     setCurrentProvider(providerId);
     refreshProviders();
     setUiMode('chat');
-  };
+  }, [refreshProviders]);
 
   /** Mở form chọn loại provider */
-  const handleOpenProviderAdd = () => {
+  const handleOpenProviderAdd = useCallback(() => {
     setSelectedProviderType(null);
     setUiMode('provider-type-select');
-  };
+  }, []);
 
   /** Chọn loại provider → mở form thêm */
-  const handleProviderTypeSelect = (type: ProviderType) => {
+  const handleProviderTypeSelect = useCallback((type: ProviderType) => {
     setSelectedProviderType(type);
     setUiMode('provider-add-form');
-  };
+  }, []);
 
   /** Lưu provider mới → set làm current → về chat */
-  const handleProviderSave = (data: {
+  const handleProviderSave = useCallback((data: {
     name: string;
     type: ProviderType;
     baseUrl: string;
@@ -299,23 +392,23 @@ const App = () => {
     setCurrentProvider(newProvider.id);
     refreshProviders();
     setUiMode('chat');
-  };
+  }, [refreshProviders]);
 
   // ============================================================
   // Model handlers
   // ============================================================
 
   /** Chọn model → set làm default → về chat */
-  const handleModelSelect = (modelId: string) => {
+  const handleModelSelect = useCallback((modelId: string) => {
     if (selectedProvider) {
       setDefaultModel(selectedProvider.id, modelId);
     }
     refreshProviders();
     setUiMode('chat');
-  };
+  }, [selectedProvider, refreshProviders]);
 
   /** Đặt model làm mặc định (giữ nguyên trong model-list) */
-  const handleModelSetDefault = (modelId: string) => {
+  const handleModelSetDefault = useCallback((modelId: string) => {
     if (selectedProvider) {
       const updated = setDefaultModel(selectedProvider.id, modelId);
       if (updated) {
@@ -323,10 +416,10 @@ const App = () => {
       }
     }
     refreshProviders();
-  };
+  }, [selectedProvider, refreshProviders]);
 
   /** Xóa model khỏi provider */
-  const handleModelDelete = (modelId: string) => {
+  const handleModelDelete = useCallback((modelId: string) => {
     if (!selectedProvider) return;
     const newModels = selectedProvider.models.filter((m) => m !== modelId);
     const updated = updateProviderModels(selectedProvider.id, newModels);
@@ -334,10 +427,10 @@ const App = () => {
       setSelectedProvider(updated);
     }
     refreshProviders();
-  };
+  }, [selectedProvider, refreshProviders]);
 
   /** Thêm model thủ công */
-  const handleModelAddSubmit = (modelId: string) => {
+  const handleModelAddSubmit = useCallback((modelId: string) => {
     if (!selectedProvider) return;
     const newModels = [...selectedProvider.models, modelId];
     const updated = updateProviderModels(selectedProvider.id, newModels);
@@ -346,10 +439,10 @@ const App = () => {
     }
     refreshProviders();
     setShowModelAddInput(false);
-  };
+  }, [selectedProvider, refreshProviders]);
 
   /** Fetch model từ API */
-  const handleFetchModels = async () => {
+  const handleFetchModels = useCallback(async () => {
     if (!selectedProvider) return;
 
     setModelFetching(true);
@@ -370,49 +463,49 @@ const App = () => {
     } finally {
       setModelFetching(false);
     }
-  };
+  }, [selectedProvider, refreshProviders]);
 
   // ============================================================
   // Navigation handlers
   // ============================================================
 
   /** Mở ModelAddInput */
-  const handleModelAddMode = () => {
+  const handleModelAddMode = useCallback(() => {
     setShowModelAddInput(true);
-  };
+  }, []);
 
   /** Quay lại từ ModelAddInput về ModelMenu */
-  const handleModelAddBack = () => {
+  const handleModelAddBack = useCallback(() => {
     setShowModelAddInput(false);
-  };
+  }, []);
 
   /** Back từ ProviderMenu về chat */
-  const handleProviderBack = () => {
+  const handleProviderBack = useCallback(() => {
     setUiMode('chat');
-  };
+  }, []);
 
   /** Back từ ProviderTypeSelect về ProviderMenu */
-  const handleProviderTypeBack = () => {
+  const handleProviderTypeBack = useCallback(() => {
     refreshProviders();
     setUiMode('provider-list');
-  };
+  }, [refreshProviders]);
 
   /** Back từ ProviderAddForm về ProviderTypeSelect (hoặc ProviderMenu) */
-  const handleProviderFormBack = () => {
+  const handleProviderFormBack = useCallback(() => {
     setUiMode('provider-type-select');
-  };
+  }, []);
 
   /** Back từ ModelMenu về chat */
-  const handleModelBack = () => {
+  const handleModelBack = useCallback(() => {
     setUiMode('chat');
-  };
+  }, []);
 
   // ============================================================
   // Render
   // ============================================================
   return (
     <Box flexDirection="column" height="100%">
-      <TerminalTop />
+      <TerminalTop stableMode={stableMode} />
       <TerminalMid
         uiMode={uiMode}
         chatProps={{
@@ -457,9 +550,10 @@ const App = () => {
         onCommand={handleCommand}
         isLoading={isLoading}
         uiMode={uiMode}
+        stableMode={stableMode}
       />
     </Box>
   );
 };
 
-export default App;
+export default React.memo(App);

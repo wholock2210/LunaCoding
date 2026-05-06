@@ -81,7 +81,7 @@ interface TerminalMidProps {
 
 // ─── Component chat ───────────────────────────────────────────────────
 
-const ChatView = ({ messages, isLoading, isStreaming, streamingPhase, expandedThinkingIndices }: ChatModeProps) => {
+const ChatView = React.memo(({ messages, isLoading, isStreaming, streamingPhase, expandedThinkingIndices }: ChatModeProps) => {
 	const showLoadingIndicator = isLoading || isStreaming;
 
 	return (
@@ -146,7 +146,7 @@ const ChatView = ({ messages, isLoading, isStreaming, streamingPhase, expandedTh
 			)}
 		</Box>
 	);
-};
+});
 
 // ─── Router component chính ───────────────────────────────────────────
 
@@ -239,4 +239,4 @@ const TerminalMid = ({
 	}
 };
 
-export default TerminalMid;
+export default React.memo(TerminalMid);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import fs from 'fs/promises';
 import path from 'path';
+import Clock from './Clock.js';
 
 interface TextSegment {
   text: string;
@@ -291,10 +292,9 @@ function parseLineSegments(line: string, defaultColor: string): TextSegment[] {
   return segments;
 }
 
-const TerminalTop = () => {
+const TerminalTop = ({ stableMode = false }: { stableMode?: boolean }) => {
   const [asciiLines, setAsciiLines] = useState<AsciiLine[]>([]);
   const [asciiNameLines, setAsciiNameLines] = useState<AsciiLine[]>([]);
-  const [currentTime, setCurrentTime] = useState<string>('');
 
   useEffect(() => {
     // Đọc ASCII art từ file và parse màu sắc
@@ -361,16 +361,6 @@ const TerminalTop = () => {
 
     loadAsciiArt();
     loadAsciiName();
-
-    // Cập nhật thời gian mỗi giây
-    const updateTime = () => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString('vi-VN'));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-
-    return () => clearInterval(interval);
   }, []);
 
   // Số dòng tối đa để tạo line phân cách và border dọc khớp chiều cao
@@ -443,7 +433,7 @@ const TerminalTop = () => {
               {/* Dưới: thông tin, canh trái */}
               <Box flexDirection="column" alignItems="flex-start">
                 <Text color="yellow">📁 {process.cwd()}</Text>
-                <Text color="green">🕐 {currentTime}</Text>
+                <Clock frozen={stableMode} />
                 <Text color="magenta">💻 LunaCoding v1.0.0</Text>
               </Box>
             </Box>
@@ -464,4 +454,4 @@ const TerminalTop = () => {
   );
 };
 
-export default TerminalTop;
+export default React.memo(TerminalTop);

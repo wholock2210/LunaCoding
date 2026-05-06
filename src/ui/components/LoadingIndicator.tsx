@@ -28,7 +28,7 @@ const LoadingIndicator = ({ text = defaultText }: LoadingIndicatorProps) => {
   useEffect(() => {
     const interval = setInterval(() => {
       setFrame((f) => f + 1);
-    }, 80);
+    }, 120);
     return () => clearInterval(interval);
   }, []);
 
@@ -58,4 +58,4 @@ const LoadingIndicator = ({ text = defaultText }: LoadingIndicatorProps) => {
   );
 };
 
-export default LoadingIndicator;
+export default React.memo(LoadingIndicator);
