@@ -173,15 +173,6 @@ const TerminalBottom = ({
         />
       </Box>
       {renderSuggestions()}
-      {!showSuggestions && (
-        <Box marginTop={1}>
-          <Text dimColor>
-            {isLoading
-              ? '⏳ Đang xử lý, vui lòng đợi...'
-              : '💡 Gợi ý: Nhập / để xem danh sách lệnh | Tab để tự động hoàn thành'}
-          </Text>
-        </Box>
-      )}
     </Box>
   );
 };

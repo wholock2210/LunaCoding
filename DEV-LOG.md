@@ -288,3 +288,147 @@ Thêm chức năng tự động gợi ý lệnh khi người dùng nhập `/` tr
 | Nhấn **Tab** | Tự động điền lệnh đầu tiên + dấu cách (vd: `/provider `) |
 | Nhấn **Enter** | Thực thi lệnh (hành vi không đổi) |
 | Gõ lệnh không tồn tại + Enter | App hiển thị thông báo lỗi "Lệnh không được hỗ trợ" |
+
+## [7] 2026-05-06 — Hệ thống Logging, Error Handling, Tool Calling & Stability
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Tích hợp hệ thống logging để debug, error handling toàn diện cho streaming, framework tool calling cho phép AI gọi công cụ (bắt đầu với `read-file`), XML parser thô cho provider không hỗ trợ native tool calling, stable mode giúp ổn định IME tiếng Việt, và sửa nhiều lỗi streaming + crash UI.
+
+### Các thay đổi
+
+#### 1. Hệ thống Logging (`src/services/logger.ts`) — MỚI
+- Ghi log xoay vòng vào `~/.LunaCoding/logs/lunacoding.log`
+- Giới hạn **1000 dòng** cuối, tự động cắt dòng cũ
+- Hàm `log(level, message, meta?)`: ghi log với timestamp, level (DEBUG/INFO/WARN/ERROR/FATAL) và metadata JSON
+- Hàm `logError(context, error)`: ghi log ERROR kèm stack trace
+- Hàm `getLogs(lines?)`: đọc N dòng log cuối (mặc định 50)
+- Hàm `clearLogs()`: xóa toàn bộ file log
+- Tự động tạo thư mục `~/.LunaCoding/logs/` với permission `0o700`
+
+#### 2. Lệnh `/logs` — Xem log hệ thống
+- Đăng ký trong `commands.ts`: `/logs` (alias `/logs all`, `/logs clear`)
+- Xử lý trong `app.tsx`:
+  - `/logs` → hiển thị 50 dòng log cuối trong khung code block
+  - `/logs all` → hiển thị toàn bộ log
+  - `/logs clear` → xóa log và hiển thị thông báo xác nhận
+- Log được format trong markdown code block để dễ đọc
+
+#### 3. Error Handling trong Streaming
+- **`types.ts`**: Thêm type `'error'` vào `ChatStreamChunk` với field `error?: string`
+- **`chat.ts`**: `sendChatMessageStream()` bọc try-catch quanh `provider.chatStream()`, yield chunk `{ type: 'error', error: message }` khi có lỗi, ghi log lỗi qua `logError()`
+- **`app.tsx`**: Xử lý chunk `error`:
+  - Hiển thị nội dung lỗi thân thiện với prefix `● LunaCoding:`
+  - Kèm gợi ý `💡 Dùng \`/logs\` để xem chi tiết lỗi.`
+  - Kết thúc stream ngay, đặt `streamingPhase = null`
+- **Tất cả provider**: Thêm `logError()` khi axios request thất bại (`chat()`, `testConnection()`, `listModels()`)
+- **`registry.ts`**: Log khi tạo provider instance mới
+
+#### 4. Tool Calling Framework (`src/services/tools/`) — MỚI
+- **`types.ts`**: Định nghĩa interface `Tool`, `ToolCall`, `ToolResult`, `NativeToolFormat`, `ToolRegistry`
+- **`registry.ts`**: `ToolRegistry` class quản lý danh sách tool:
+  - `register(tool)`: đăng ký một tool mới
+  - `get(name)`: lấy tool theo tên
+  - `getAll()`: lấy tất cả tool đã đăng ký
+  - `getNativeTools(format)`: trả về tool schema theo format native (OpenAI, Anthropic)
+  - `execute(name, args)`: thực thi tool và trả về `ToolResult`
+  - `toToolMessages(results)`: chuyển kết quả tool thành messages
+- **`read-file.ts`**: Tool "read_file" — đọc nội dung file từ đường dẫn, giới hạn 50000 ký tự
+- **`index.ts`**: Export toàn bộ tool system, tự động đăng ký `read-file`
+
+#### 5. XML Parser thô (`src/services/xml-parser.ts`) — MỚI
+- Parse XML tool call từ text response (dành cho provider không hỗ trợ native tool calling)
+- Hỗ trợ cú pháp:
+  ```xml
+  <tool_call>
+  <name>read_file</name>
+  <arguments>{"path": "/path/to/file"}</arguments>
+  </tool_call>
+  ```
+- Hàm `parseXmlToolCalls(text)`: trả về mảng `ToolCall[]` từ text
+- Hàm `hasXmlToolCalls(text)`: kiểm tra text có chứa tool call XML không
+- Xử lý nhiều tool call trong cùng một response
+- Hỗ trợ XML comment và khoảng trắng linh hoạt
+
+#### 6. Lệnh `/tool-mode` & `/tm` — Quản lý chế độ gọi tool
+- Đăng ký trong `commands.ts`: `/tool-mode`, `/tm` (alias)
+- Xử lý trong `app.tsx`:
+  - `/tool-mode` hoặc `/tm` → hiển thị chế độ hiện tại và hướng dẫn các chế độ
+  - `/tool-mode auto` → tự động dùng native nếu provider hỗ trợ, nếu không thì parse XML
+  - `/tool-mode native` → luôn dùng native tool calling
+  - `/tool-mode xml` → luôn parse XML tool call từ text
+- Lưu chế độ vào config qua `setToolParseMode()`
+- Thêm `ToolParseMode` type vào `types.ts`: `'auto' | 'native' | 'xml'`
+
+#### 7. Stable Mode (`Ctrl+I`) — Ổn định IME tiếng Việt
+- **Vấn đề**: Khi streaming, `setMessages()` gây re-render `TerminalBottom`, làm mất focus/con trỏ IME (fcitx-bamboo)
+- **Giải pháp**: Stable Mode — khi bật (`Ctrl+I`), stream buffer thay đổi vào `streamBufferRef` thay vì gọi `setMessages()`. Khi tắt stable mode, `useEffect` flush buffer vào state.
+- **State**: `stableMode: boolean` + `stableModeRef`
+- **Buffer**: `streamBufferRef` chứa `messages`, `placeholderIdx`, `thinkingText`, `responseText`, `finalUsage`, `finished`
+- **`Ctrl+I`**: toggle stable mode bất kỳ lúc nào
+- **Khi tắt stable mode**: flush toàn bộ buffer vào state, cập nhật `streamingPhase` và `messages`
+
+#### 8. Sửa lỗi streaming — Parse sai cấu trúc JSON SSE
+- **`openai-compatible.ts` — `chatStream()`**:
+  - **Lỗi**: Code cũ parse `json?.delta` nhưng dữ liệu thực tế từ proxy có cấu trúc `{ choices: [{ delta: {...} }] }`
+  - **Sửa**: Parse đúng `data?.choices?.[0]?.delta` thay vì `json?.delta`
+  - **`finish_reason`**: Lấy từ `choice?.finish_reason` thay vì `json?.finish_reason`
+  - **`stream_options`**: Comment `stream_options: { include_usage: true }` vì không tương thích với một số proxy tự host (DeepSeek, v.v.)
+  - **Log lỗi parse**: Thêm `logError()` khi parse dòng SSE thất bại để dễ debug
+
+#### 9. Sửa crash `ResponseBlock` — Guard clause cho content undefined
+- **Lỗi**: `Cannot read properties of undefined (reading 'split')` tại `ResponseBlock.tsx:27`
+- **Nguyên nhân**: `msg.content` có thể là `undefined` khi stream bị gián đoạn trước chunk content đầu tiên
+- **Sửa**:
+  - `splitContent()`: Thêm `if (!content) return [];` ở đầu hàm
+  - `reasoningContent`: Thay `reasoningContent.split('\n')` thành `(reasoningContent || '').split('\n')`
+
+#### 10. `resolveEndpoint()` helper — Tránh duplicate `/v1`
+- **`base-provider.ts`**: Thêm method `resolveEndpoint(path: string): string`
+  - Nếu `path` bắt đầu bằng `/v1` VÀ `baseUrl` đã kết thúc bằng `/v1` → tự động cắt bỏ `/v1` khỏi path
+  - Ngược lại, nối bình thường: `baseUrl + path`
+- **Tất cả provider**: Sử dụng `this.resolveEndpoint('/v1/...')` thay vì nối thủ công `${this.baseUrl}/v1/...`
+
+### Kiến trúc thư mục (cập nhật)
+```
+src/
+├── services/
+│   ├── types.ts              ← Đã sửa: thêm ChatStreamChunk type 'error', 'tool_call'; ToolParseMode
+│   ├── chat.ts               ← Đã sửa: error handling try-catch, yield chunk error, log lỗi
+│   ├── logger.ts             ← MỚI: hệ thống log xoay vòng
+│   ├── xml-parser.ts         ← MỚI: parse XML tool call thô từ text
+│   ├── commands.ts           ← Đã sửa: thêm lệnh /logs, /tool-mode, /tm
+│   ├── config.ts             ← Đã sửa: thêm getToolParseMode(), setToolParseMode()
+│   ├── providers/
+│   │   ├── base-provider.ts  ← Đã sửa: thêm resolveEndpoint() helper
+│   │   ├── registry.ts       ← Đã sửa: log khi tạo provider
+│   │   ├── openai-compatible.ts ← Đã sửa: parse đúng SSE, comment stream_options, resolveEndpoint, log lỗi
+│   │   ├── anthropic.ts      ← Đã sửa: resolveEndpoint, log lỗi
+│   │   ├── google-gemini.ts  ← Đã sửa: resolveEndpoint, log lỗi
+│   │   └── cohere.ts         ← Đã sửa: resolveEndpoint, log lỗi
+│   └── tools/                ← MỚI: framework tool calling
+│       ├── types.ts          ← Định nghĩa Tool, ToolCall, ToolResult
+│       ├── registry.ts       ← ToolRegistry class
+│       ├── read-file.ts      ← Tool "read_file"
+│       └── index.ts          ← Export + auto-register
+└── ui/
+    ├── app.tsx               ← Đã sửa: xử lý chunk error, lệnh /logs, /tool-mode, stable mode (Ctrl+I)
+    └── components/
+        └── ResponseBlock.tsx ← Đã sửa: guard clause cho content undefined
+```
+
+### Lệnh slash mới
+| Lệnh | Alias | Chức năng |
+|------|-------|-----------|
+| `/logs` | — | Xem 50 dòng log cuối |
+| `/logs all` | — | Xem toàn bộ log |
+| `/logs clear` | — | Xóa log |
+| `/tool-mode` | `/tm` | Xem chế độ gọi tool hiện tại |
+| `/tool-mode auto` | `/tm auto` | Tự động chọn native/xml |
+| `/tool-mode native` | `/tm native` | Luôn dùng native tool calling |
+| `/tool-mode xml` | `/tm xml` | Luôn parse XML từ text |
+
+### Phím tắt mới
+| Phím | Chức năng |
+|------|-----------|
+| `Ctrl+I` | Toggle Stable Mode — ổn định IME tiếng Việt khi streaming |

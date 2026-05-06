@@ -1,4 +1,5 @@
 import { decryptApiKey } from '../crypto.js';
+import { log, logError } from '../logger.js';
 import type { ProviderConfig, ProviderType } from '../types.js';
 import type { BaseProvider } from './base-provider.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';
@@ -44,11 +45,25 @@ const PROVIDER_REGISTRY: Record<
 export function createProvider(config: ProviderConfig): BaseProvider {
   const registered = PROVIDER_REGISTRY[config.type];
   if (!registered) {
+    logError('Provider không được hỗ trợ', { type: config.type });
     throw new Error(`Loại provider không được hỗ trợ: ${config.type}`);
   }
 
-  const apiKey = decryptApiKey(config.apiKey);
+  let apiKey: string;
+  try {
+    apiKey = decryptApiKey(config.apiKey);
+  } catch (err) {
+    logError('Lỗi giải mã API key', err);
+    throw new Error(`Không thể giải mã API key: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const baseUrl = config.baseUrl || registered.defaultUrl;
+
+  log('INFO', `Provider được khởi tạo: ${config.type}`, {
+    name: config.name,
+    baseUrl,
+    model: config.defaultModel,
+  });
 
   return new registered.ctor(baseUrl, apiKey, config.defaultModel);
 }

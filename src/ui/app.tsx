@@ -11,14 +11,18 @@ import {
   updateProviderModels,
   setDefaultModel,
   getCurrentProvider,
+  getToolParseMode,
+  setToolParseMode,
 } from '../services/config.js';
 import { createProvider } from '../services/providers/registry.js';
+import { getLogs, clearLogs } from '../services/logger.js';
 import type {
   Message,
   UiMode,
   ProviderConfig,
   ProviderType,
   ChatStreamChunk,
+  ToolParseMode,
 } from '../services/types.js';
 
 const App = () => {
@@ -182,6 +186,76 @@ const App = () => {
       return;
     }
 
+    // ── /logs ─────────────────────────────────────────────────
+    if (normalized === '/logs') {
+      const logContent = getLogs(50);
+      const logMsg: Message = {
+        role: 'assistant',
+        content: `📋 **Log hệ thống (50 dòng cuối):**\n\`\`\`\n${logContent}\n\`\`\`\n\nDùng \`/logs all\` để xem toàn bộ, \`/logs clear\` để xóa.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, logMsg]);
+      return;
+    }
+
+    if (normalized === '/logs all') {
+      const logContent = getLogs(9999);
+      const logMsg: Message = {
+        role: 'assistant',
+        content: `📋 **Toàn bộ log hệ thống:**\n\`\`\`\n${logContent}\n\`\`\``,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, logMsg]);
+      return;
+    }
+
+    if (normalized === '/logs clear') {
+      clearLogs();
+      const confirmMsg: Message = {
+        role: 'assistant',
+        content: '🧹 Đã xóa toàn bộ log hệ thống.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMsg]);
+      return;
+    }
+
+    // ── /tool-mode ──────────────────────────────────────────
+    if (normalized === '/tool-mode' || normalized === '/tm') {
+      const currentMode = getToolParseMode();
+      const modeHelp: Message = {
+        role: 'assistant',
+        content:
+          `🔧 **Chế độ gọi tool hiện tại: \`${currentMode}\`**\n\n` +
+          `Các chế độ:\n` +
+          `  • \`auto\`   — Tự động dùng native tool calling nếu provider hỗ trợ, nếu không thì parse XML\n` +
+          `  • \`native\` — Luôn dùng native tool calling của provider (OpenAI, Anthropic, Gemini, Cohere)\n` +
+          `  • \`xml\`    — Luôn parse XML tool call từ text response (dùng cho provider không hỗ trợ native)\n\n` +
+          `Cách đổi chế độ:\n` +
+          `  /tool-mode auto\n` +
+          `  /tool-mode native\n` +
+          `  /tool-mode xml\n` +
+          `  /tm auto    (alias ngắn gọn)`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, modeHelp]);
+      return;
+    }
+
+    // /tool-mode <mode> hoặc /tm <mode>
+    const toolModeMatch = normalized.match(/^\/(?:tool-mode|tm)\s+(auto|native|xml)$/);
+    if (toolModeMatch) {
+      const newMode = toolModeMatch[1] as ToolParseMode;
+      setToolParseMode(newMode);
+      const confirmMsg: Message = {
+        role: 'assistant',
+        content: `🔧 Đã chuyển chế độ gọi tool sang **\`${newMode}\`**.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMsg]);
+      return;
+    }
+
     if (normalized === '/help' || normalized === '/h') {
       const helpMsg: Message = {
         role: 'assistant',
@@ -189,6 +263,8 @@ const App = () => {
           '📋 **Các lệnh có sẵn:**\n' +
           '  /provider  — Quản lý provider (thêm, chọn)\n' +
           '  /model     — Quản lý model của provider hiện tại\n' +
+          '  /tool-mode — Xem/đổi chế độ gọi tool (auto/native/xml)\n' +
+          '  /logs      — Xem log hệ thống (/logs, /logs all, /logs clear)\n' +
           '  /help      — Hiển thị trợ giúp này\n' +
           '\n💡 Nhập tin nhắn thông thường để trò chuyện với AI.',
         timestamp: new Date(),
@@ -225,7 +301,7 @@ const App = () => {
       completionTokens: undefined,
       totalTokens: undefined,
       timestamp: new Date(),
-    };
+    } as any;
 
     setMessages((prev) => [...prev, userMessage, placeholder]);
     if (!stableModeRef.current) {
@@ -245,6 +321,7 @@ const App = () => {
 
     let thinkingText = '';
     let responseText = '';
+    let errorText = '';
     let finalUsage: ChatStreamChunk['usage'] | undefined;
 
     let currentMessages = [...allMessages];
@@ -276,6 +353,47 @@ const App = () => {
             }
             setMessages([...currentMessages]);
           }
+        } else if (chunk.type === 'error') {
+          // Nhận chunk lỗi từ chat.ts — hiển thị trực tiếp
+          errorText = chunk.error ?? 'Lỗi không xác định từ provider.';
+          currentMessages[placeholderIdx] = {
+            ...currentMessages[placeholderIdx]!,
+            content: `● LunaCoding: ${errorText}\n\n💡 Dùng \`/logs\` để xem chi tiết lỗi.`,
+          };
+          if (!stableModeRef.current) {
+            setMessages([...currentMessages]);
+          }
+          // Không hiển thị thêm nội dung nào nữa, kết thúc stream
+          streamingPhaseRef.current = null;
+          if (!stableModeRef.current) {
+            setStreamingPhase(null);
+          }
+        } else if (chunk.type === 'tool_call') {
+          // Thêm tool_call block vào content của message hiện tại
+          const tc = chunk.toolCall;
+          if (tc) {
+            const toolBlock = `\n🔧 **Gọi tool: \`${tc.name}\`**\n\`\`\`json\n${JSON.stringify(tc.arguments, null, 2)}\n\`\`\`\n`;
+            currentMessages[placeholderIdx] = {
+              ...currentMessages[placeholderIdx]!,
+              content: (currentMessages[placeholderIdx]?.content ?? '') + toolBlock,
+            };
+            if (!stableModeRef.current) {
+              setMessages([...currentMessages]);
+            }
+          }
+        } else if (chunk.type === 'tool_result') {
+          const tr = chunk.toolResult;
+          if (tr) {
+            const resultIcon = tr.isError ? '❌' : '✅';
+            const resultBlock = `\n${resultIcon} **Kết quả tool:**\n\`\`\`\n${tr.content.slice(0, 2000)}\n\`\`\`\n`;
+            currentMessages[placeholderIdx] = {
+              ...currentMessages[placeholderIdx]!,
+              content: (currentMessages[placeholderIdx]?.content ?? '') + resultBlock,
+            };
+            if (!stableModeRef.current) {
+              setMessages([...currentMessages]);
+            }
+          }
         } else if (chunk.type === 'done') {
           finalUsage = chunk.usage;
           streamingPhaseRef.current = null;
@@ -292,20 +410,38 @@ const App = () => {
             thinkingText,
             responseText,
             finalUsage,
-            finished: chunk.type === 'done',
+            finished: chunk.type === 'done' || chunk.type === 'error',
           };
         }
       }
-    } catch {
+    } catch (err) {
+      // Lỗi không mong đợi trong vòng lặp stream
+      const errMsg = err instanceof Error ? err.message : String(err);
+      errorText = `Lỗi kết nối: ${errMsg}`;
+      currentMessages[placeholderIdx] = {
+        ...currentMessages[placeholderIdx]!,
+        content: `● LunaCoding: ${errorText}\n\n💡 Dùng \`/logs\` để xem chi tiết lỗi.`,
+      };
       streamingPhaseRef.current = null;
       if (!stableModeRef.current) {
         setStreamingPhase(null);
+        setMessages([...currentMessages]);
       }
     } finally {
-      // Sau khi stream kết thúc, luôn đồng bộ UI với dữ liệu cuối cùng
-      const finalContent = responseText.length > 0 || thinkingText.length > 0
-        ? responseText
-        : 'LunaCoding: Không thể kết nối đến provider hoặc stream bị gián đoạn. Vui lòng thử lại.';
+      // Sau khi stream kết thúc, đồng bộ UI với dữ liệu cuối cùng
+      // Nếu đã có lỗi (errorText) hoặc đã có phản hồi, giữ nguyên
+      // Chỉ hiển thị fallback message khi không có gì cả
+      if (!errorText) {
+        if (responseText.length > 0 || thinkingText.length > 0) {
+          // Có phản hồi bình thường — không cần làm gì thêm
+        } else {
+          // Không có phản hồi và không có lỗi cụ thể — fallback
+          currentMessages[placeholderIdx] = {
+            ...currentMessages[placeholderIdx]!,
+            content: '● LunaCoding: Không thể kết nối đến provider hoặc stream bị gián đoạn. Vui lòng thử lại.\n\n💡 Dùng `/logs` để xem chi tiết lỗi.',
+          };
+        }
+      }
 
       if (stableModeRef.current) {
         // Lưu trạng thái cuối vào buffer; useEffect sẽ flush khi tắt stable mode
@@ -321,9 +457,11 @@ const App = () => {
         setMessages((prev) => {
           const next = [...prev];
           if (next[placeholderIdx]) {
+            // Giữ nguyên content nếu đã được set bởi error hoặc response
+            const existingContent = currentMessages[placeholderIdx]?.content ?? '';
             next[placeholderIdx] = {
               ...next[placeholderIdx],
-              content: finalContent,
+              content: existingContent || next[placeholderIdx]?.content || '',
               reasoningTokens: finalUsage?.reasoningTokens,
               completionTokens: finalUsage
                 ? finalUsage.completionTokens - (finalUsage.reasoningTokens ?? 0)

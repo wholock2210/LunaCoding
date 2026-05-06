@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { encryptApiKey, decryptApiKey } from './crypto.js';
-import type { AppConfig, ProviderConfig } from './types.js';
+import type { AppConfig, ProviderConfig, ToolParseMode } from './types.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.LunaCoding');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'setting.json');
@@ -154,4 +154,27 @@ export function updateProviderModels(providerId: string, models: string[]): Prov
  */
 export function setDefaultModel(providerId: string, model: string): ProviderConfig | null {
   return updateProvider(providerId, { defaultModel: model });
+}
+
+// ============================================================
+// Tool Parse Mode
+// ============================================================
+
+/**
+ * Lấy chế độ parse tool hiện tại.
+ * Mặc định 'auto' nếu chưa được cấu hình.
+ */
+export function getToolParseMode(): ToolParseMode {
+  const config = loadConfig();
+  return config.toolParseMode ?? 'auto';
+}
+
+/**
+ * Đặt chế độ parse tool.
+ * @param mode - 'auto' | 'native' | 'xml'
+ */
+export function setToolParseMode(mode: ToolParseMode): void {
+  const config = loadConfig();
+  config.toolParseMode = mode;
+  saveConfig(config);
 }

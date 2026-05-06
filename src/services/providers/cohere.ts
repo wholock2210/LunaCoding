@@ -1,19 +1,29 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
 import type { Message, TestConnectionResult, ChatCompletionResult, ChatStreamChunk } from '../types.js';
+import type { NativeToolFormat } from '../tools/types.js';
 
 interface CohereApiMessage {
-  role: 'USER' | 'CHATBOT';
-  message: string;
-}
-
-interface CohereChatRequest {
-  model: string;
-  messages: CohereApiMessage[];
+  role: 'USER' | 'CHATBOT' | 'TOOL';
+  message?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+  tool_results?: Array<{
+    call: { name: string; arguments: Record<string, unknown> };
+    outputs: Array<{ text: string }>;
+  }>;
 }
 
 interface CohereChatResponse {
   text: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
   meta?: {
     tokens?: {
       input_tokens?: number;
@@ -40,8 +50,6 @@ interface CohereModelsListResponse {
  * Endpoint: POST https://api.cohere.com/v2/chat
  * List models: GET https://api.cohere.com/v1/models
  * Header: Authorization: Bearer {apiKey}
- *
- * Cohere API v2 dùng role 'USER' và 'CHATBOT' (viết hoa).
  */
 export class CohereProvider extends BaseProvider {
   getType(): string {
@@ -52,19 +60,58 @@ export class CohereProvider extends BaseProvider {
     return 'https://api.cohere.com';
   }
 
+  getNativeToolFormat(): NativeToolFormat {
+    return 'cohere';
+  }
+
   /**
    * Chuyển đổi messages sang định dạng Cohere.
-   * Cohere yêu cầu role 'USER' | 'CHATBOT' (viết hoa), xen kẽ, bắt đầu bằng USER.
    */
   private toCohereMessages(messages: Message[]): CohereApiMessage[] {
     const result: CohereApiMessage[] = [];
 
     for (const msg of messages) {
+      // Tool result
+      if ((msg as any).toolCallId) {
+        result.push({
+          role: 'TOOL',
+          tool_results: [
+            {
+              call: {
+                name: (msg as any).toolCallName ?? 'unknown',
+                arguments: (msg as any).toolCallArgs ?? {},
+              },
+              outputs: [{ text: msg.content }],
+            },
+          ],
+        });
+        continue;
+      }
+
+      // Assistant với tool calls
+      if (msg.role === 'assistant' && (msg as any).toolCalls && (msg as any).toolCalls.length > 0) {
+        const toolCalls = (msg as any).toolCalls.map(
+          (tc: { id: string; name: string; arguments: Record<string, unknown> }) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments),
+            },
+          }),
+        );
+        result.push({
+          role: 'CHATBOT',
+          message: msg.content || '',
+          tool_calls: toolCalls,
+        });
+        continue;
+      }
+
       const role: 'USER' | 'CHATBOT' = msg.role === 'assistant' ? 'CHATBOT' : 'USER';
 
-      // Cohere yêu cầu xen kẽ USER/CHATBOT
       const last = result[result.length - 1];
-      if (result.length > 0 && last!.role === role) {
+      if (result.length > 0 && last!.role === role && last!.message !== undefined) {
         last!.message += '\n' + msg.content;
       } else {
         result.push({ role, message: msg.content });
@@ -83,9 +130,19 @@ export class CohereProvider extends BaseProvider {
     return result;
   }
 
-  async *chatStream(messages: Message[], model?: string): AsyncIterable<ChatStreamChunk> {
-    // Fallback: gọi chat() rồi yield toàn bộ content như 1 chunk
-    const result = await this.chat(messages, model);
+  async *chatStream(messages: Message[], model?: string, tools?: Record<string, unknown>[]): AsyncIterable<ChatStreamChunk> {
+    const result = await this.chat(messages, model, tools);
+
+    // Phát tool_calls nếu có
+    if ((result as any).toolCalls && (result as any).toolCalls.length > 0) {
+      for (const tc of (result as any).toolCalls) {
+        yield {
+          type: 'tool_call',
+          toolCall: { name: tc.name, arguments: tc.arguments },
+        };
+      }
+    }
+
     if (result.content) {
       yield { type: 'content', text: result.content };
     }
@@ -95,16 +152,22 @@ export class CohereProvider extends BaseProvider {
     };
   }
 
-  async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {
+  async chat(messages: Message[], model?: string, tools?: Record<string, unknown>[]): Promise<ChatCompletionResult> {
     const cohereMessages = this.toCohereMessages(messages);
+
+    const body: Record<string, unknown> = {
+      model: model ?? this.defaultModel,
+      messages: cohereMessages,
+    };
+
+    if (tools && tools.length > 0) {
+      body['tools'] = tools;
+    }
 
     try {
       const response = await axios.post<CohereChatResponse>(
-        `${this.baseUrl}/v2/chat`,
-        {
-          model: model ?? this.defaultModel,
-          messages: cohereMessages,
-        } as CohereChatRequest,
+        this.resolveEndpoint('/v2/chat'),
+        body,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -115,8 +178,14 @@ export class CohereProvider extends BaseProvider {
       );
 
       const data = response.data;
-      const text = data?.text;
-      const content = text || 'LunaCoding: Không nhận được phản hồi từ AI.';
+      const text = data?.text ?? '';
+
+      // Parse tool_calls từ response
+      const toolCalls = (data?.tool_calls ?? []).map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: safeJsonParse(tc.function.arguments),
+      }));
 
       const meta = data?.meta;
       const usage = meta?.tokens
@@ -128,7 +197,16 @@ export class CohereProvider extends BaseProvider {
           }
         : undefined;
 
-      return { content, usage };
+      const result: ChatCompletionResult & { toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> } = {
+        content: text || 'LunaCoding: Không nhận được phản hồi từ AI.',
+        usage,
+      };
+
+      if (toolCalls.length > 0) {
+        result.toolCalls = toolCalls;
+      }
+
+      return result;
     } catch (error: unknown) {
       return { content: this.formatError(error) };
     }
@@ -137,7 +215,7 @@ export class CohereProvider extends BaseProvider {
   async listModels(): Promise<string[]> {
     try {
       const response = await axios.get<CohereModelsListResponse>(
-        `${this.baseUrl}/v1/models`,
+        this.resolveEndpoint('/v1/models'),
         {
           headers: { Authorization: `Bearer ${this.apiKey}` },
           timeout: 30_000,
@@ -147,7 +225,6 @@ export class CohereProvider extends BaseProvider {
       const models = response.data?.models;
       if (!models || !Array.isArray(models)) return [];
 
-      // Lọc model có endpoint 'chat'
       return models
         .filter((m) => m.name && m.endpoints?.includes('chat'))
         .map((m) => m.name);
@@ -164,11 +241,11 @@ export class CohereProvider extends BaseProvider {
   async testConnection(): Promise<TestConnectionResult> {
     try {
       const response = await axios.post<CohereChatResponse>(
-        `${this.baseUrl}/v2/chat`,
+        this.resolveEndpoint('/v2/chat'),
         {
           model: this.defaultModel,
           messages: [{ role: 'USER', message: 'hi' }],
-        } as CohereChatRequest,
+        },
         {
           headers: {
             'Content-Type': 'application/json',
@@ -194,7 +271,6 @@ export class CohereProvider extends BaseProvider {
         const status = error.response.status;
         const data = error.response.data;
 
-        // Cohere error format: { message: '...' }
         if (typeof data?.message === 'string') {
           return `LunaCoding: Lỗi Cohere (${status}): ${data.message}`;
         }
@@ -206,5 +282,13 @@ export class CohereProvider extends BaseProvider {
       }
     }
     return `LunaCoding: Lỗi không xác định: ${String(error)}`;
+  }
+}
+
+function safeJsonParse(json: string): Record<string, unknown> {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return {};
   }
 }

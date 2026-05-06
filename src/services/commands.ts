@@ -16,6 +16,15 @@ export const registeredCommands: Command[] = [
     description: 'Quản lý model — chọn model cho provider hiện tại',
   },
   {
+    name: '/tool-mode',
+    aliases: ['/tm'],
+    description: 'Chế độ gọi tool: auto (tự động), native (API), xml (parse XML từ text)',
+  },
+  {
+    name: '/logs',
+    description: 'Xem log hệ thống — /logs (50 dòng cuối), /logs all, /logs clear',
+  },
+  {
     name: '/help',
     aliases: ['/h'],
     description: 'Hiển thị danh sách lệnh và trợ giúp',

@@ -1,14 +1,25 @@
 import axios from 'axios';
 import { BaseProvider } from './base-provider.js';
 import type { Message, TestConnectionResult, ChatCompletionResult, ChatStreamChunk } from '../types.js';
+import type { NativeToolFormat } from '../tools/types.js';
 
-interface AnthropicContentBlock {
+interface AnthropicTextBlock {
   type: 'text';
   text: string;
 }
 
+interface AnthropicToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+type AnthropicContentBlock = AnthropicTextBlock | AnthropicToolUseBlock;
+
 interface AnthropicMessageResponse {
   content: AnthropicContentBlock[];
+  stop_reason?: string;
   usage?: {
     input_tokens: number;
     output_tokens: number;
@@ -17,7 +28,7 @@ interface AnthropicMessageResponse {
 
 interface AnthropicApiMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | Array<AnthropicContentBlock>;
 }
 
 /**
@@ -34,6 +45,10 @@ export class AnthropicProvider extends BaseProvider {
     return 'https://api.anthropic.com';
   }
 
+  getNativeToolFormat(): NativeToolFormat {
+    return 'anthropic';
+  }
+
   /**
    * Đảm bảo messages hợp lệ cho Anthropic:
    * - Phải bắt đầu bằng role 'user'
@@ -45,11 +60,43 @@ export class AnthropicProvider extends BaseProvider {
 
     for (const msg of messages) {
       const role = msg.role as 'user' | 'assistant';
-
-      // Anthropic yêu cầu xen kẽ user/assistant
-      // Nếu message hiện tại trùng role với message cuối, gộp content
       const last = result[result.length - 1];
-      if (result.length > 0 && last!.role === role) {
+
+      // Nếu message có tool calls, giữ nguyên content array
+      if ((msg as any).toolCalls && (msg as any).toolCalls.length > 0) {
+        const blocks: AnthropicContentBlock[] = (msg as any).toolCalls.map(
+          (tc: { id: string; name: string; arguments: Record<string, unknown> }) => ({
+            type: 'tool_use' as const,
+            id: tc.id,
+            name: tc.name,
+            input: tc.arguments,
+          }),
+        );
+        // Thêm text block nếu có content
+        if (msg.content) {
+          blocks.unshift({ type: 'text', text: msg.content });
+        }
+        result.push({ role: 'assistant', content: blocks });
+        continue;
+      }
+
+      // Nếu message là tool result
+      if ((msg as any).toolCallId) {
+        result.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: (msg as any).toolCallId,
+              content: msg.content,
+            } as any,
+          ],
+        });
+        continue;
+      }
+
+      // Message thông thường: gộp nếu trùng role
+      if (result.length > 0 && last!.role === role && typeof last!.content === 'string') {
         last!.content += '\n' + msg.content;
       } else {
         result.push({ role, content: msg.content });
@@ -69,9 +116,20 @@ export class AnthropicProvider extends BaseProvider {
     return result;
   }
 
-  async *chatStream(messages: Message[], model?: string): AsyncIterable<ChatStreamChunk> {
+  async *chatStream(messages: Message[], model?: string, tools?: Record<string, unknown>[]): AsyncIterable<ChatStreamChunk> {
     // Fallback: gọi chat() rồi yield toàn bộ content như 1 chunk
-    const result = await this.chat(messages, model);
+    const result = await this.chat(messages, model, tools);
+
+    // Phát tool_calls nếu có
+    if ((result as any).toolCalls && (result as any).toolCalls.length > 0) {
+      for (const tc of (result as any).toolCalls) {
+        yield {
+          type: 'tool_call',
+          toolCall: { name: tc.name, arguments: tc.arguments },
+        };
+      }
+    }
+
     if (result.content) {
       yield { type: 'content', text: result.content };
     }
@@ -81,17 +139,23 @@ export class AnthropicProvider extends BaseProvider {
     };
   }
 
-  async chat(messages: Message[], model?: string): Promise<ChatCompletionResult> {
+  async chat(messages: Message[], model?: string, tools?: Record<string, unknown>[]): Promise<ChatCompletionResult> {
     const apiMessages = this.normalizeMessages(messages);
+
+    const body: Record<string, unknown> = {
+      model: model ?? this.defaultModel,
+      max_tokens: 4096,
+      messages: apiMessages,
+    };
+
+    if (tools && tools.length > 0) {
+      body['tools'] = tools;
+    }
 
     try {
       const response = await axios.post<AnthropicMessageResponse>(
-        `${this.baseUrl}/v1/messages`,
-        {
-          model: model ?? this.defaultModel,
-          max_tokens: 4096,
-          messages: apiMessages,
-        },
+        this.resolveEndpoint('/v1/messages'),
+        body,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -108,10 +172,18 @@ export class AnthropicProvider extends BaseProvider {
         return { content: 'LunaCoding: Không nhận được phản hồi từ AI.' };
       }
 
+      // Parse tool_use blocks
+      const toolUses = contentBlocks.filter((b) => b.type === 'tool_use');
+      const toolCalls = toolUses.map((tu) => ({
+        id: (tu as AnthropicToolUseBlock).id,
+        name: (tu as AnthropicToolUseBlock).name,
+        arguments: (tu as AnthropicToolUseBlock).input,
+      }));
+
       // Gộp tất cả text blocks
       const text = contentBlocks
         .filter((block) => block.type === 'text')
-        .map((block) => block.text)
+        .map((block) => (block as AnthropicTextBlock).text)
         .join('\n');
 
       const usage = data?.usage
@@ -123,7 +195,16 @@ export class AnthropicProvider extends BaseProvider {
           }
         : undefined;
 
-      return { content: text || 'LunaCoding: Phản hồi rỗng từ AI.', usage };
+      const result: ChatCompletionResult & { toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> } = {
+        content: text || 'LunaCoding: Phản hồi rỗng từ AI.',
+        usage,
+      };
+
+      if (toolCalls.length > 0) {
+        result.toolCalls = toolCalls;
+      }
+
+      return result;
     } catch (error: unknown) {
       return { content: this.formatError(error) };
     }
@@ -131,7 +212,6 @@ export class AnthropicProvider extends BaseProvider {
 
   async listModels(): Promise<string[]> {
     // Anthropic không có endpoint /v1/models công khai
-    // Trả về danh sách model phổ biến để người dùng tham khảo
     return [
       'claude-3-5-sonnet-20241022',
       'claude-3-5-haiku-20241022',
@@ -144,7 +224,7 @@ export class AnthropicProvider extends BaseProvider {
   async testConnection(): Promise<TestConnectionResult> {
     try {
       const response = await axios.post<AnthropicMessageResponse>(
-        `${this.baseUrl}/v1/messages`,
+        this.resolveEndpoint('/v1/messages'),
         {
           model: this.defaultModel,
           max_tokens: 50,
@@ -164,7 +244,7 @@ export class AnthropicProvider extends BaseProvider {
       if (content && content.length > 0) {
         const text = content
           .filter((block) => block.type === 'text')
-          .map((block) => block.text)
+          .map((block) => (block as AnthropicTextBlock).text)
           .join(' ')
           .slice(0, 100);
         return { success: true, message: `✅ Kết nối thành công! Phản hồi: "${text}"` };
@@ -181,7 +261,6 @@ export class AnthropicProvider extends BaseProvider {
         const status = error.response.status;
         const data = error.response.data;
 
-        // Anthropic trả về error object có dạng { type: 'error', error: { type: '...', message: '...' } }
         if (data?.error?.message) {
           return `LunaCoding: Lỗi Anthropic (${status}): ${data.error.message}`;
         }

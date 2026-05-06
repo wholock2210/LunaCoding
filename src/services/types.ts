@@ -15,6 +15,9 @@ export interface Message {
 /** Các loại provider được hỗ trợ */
 export type ProviderType = 'openai-compatible' | 'anthropic' | 'google-gemini' | 'cohere';
 
+/** Chế độ parse tool: auto (tự phát hiện), native (dùng API), xml (parse XML từ text) */
+export type ToolParseMode = 'auto' | 'native' | 'xml';
+
 /** Cấu hình một model */
 export interface ModelInfo {
   id: string;
@@ -37,6 +40,7 @@ export interface ProviderConfig {
 export interface AppConfig {
   currentProviderId: string | null;
   providers: ProviderConfig[];
+  toolParseMode?: ToolParseMode;
 }
 
 /** Kết quả test connection */
@@ -80,8 +84,11 @@ export interface ChatCompletionResult {
 
 /** Mỗi chunk trong streaming response */
 export interface ChatStreamChunk {
-  type: 'reasoning' | 'content' | 'done';
+  type: 'reasoning' | 'content' | 'done' | 'tool_call' | 'tool_result' | 'error';
   text?: string;
+  error?: string;
+  toolCall?: { name: string; arguments: Record<string, unknown> };
+  toolResult?: { content: string; isError?: boolean };
   usage?: {
     promptTokens: number;
     completionTokens: number;

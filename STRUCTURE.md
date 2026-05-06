@@ -24,26 +24,34 @@ LunaCoding/
 └── src/
     ├── index.tsx              # Entry point: render app bằng Ink
     │
-    ├── services/              # Tầng dịch vụ (API, types, providers)
-    │   ├── chat.ts            # Giao tiếp với AI proxy: trả về ChatCompletionResult (content + reasoning + usage)
-    │   ├── config.ts          # Quản lý cấu hình: đọc/ghi file config, API keys
+    ├── services/              # Tầng dịch vụ (API, types, providers, tools)
+    │   ├── chat.ts            # Giao tiếp với AI proxy: streaming + error handling + log
+    │   ├── config.ts          # Quản lý cấu hình: đọc/ghi file config, API keys, tool parse mode
     │   ├── crypto.ts          # Mã hóa/giải mã API keys (AES-256-GCM)
-    │   ├── types.ts           # Định nghĩa interface Message, ChatCompletionResult, Command, ProviderConfig, v.v.
-    │   ├── commands.ts        # Đăng ký lệnh slash (/provider, /model, /help) + filter + autocomplete
+    │   ├── logger.ts          # Hệ thống log xoay vòng vào ~/.LunaCoding/logs/
+    │   ├── types.ts           # Định nghĩa interface Message, ChatStreamChunk, Command, ProviderConfig, Tool, v.v.
+    │   ├── xml-parser.ts      # Parse XML tool call thô từ text response
+    │   ├── commands.ts        # Đăng ký lệnh slash (/provider, /model, /help, /logs, /tool-mode) + autocomplete
     │   │
-    │   └── providers/         # Hệ thống multi-provider
-    │       ├── base-provider.ts        # Abstract base class: chat() → ChatCompletionResult
-    │       ├── registry.ts             # Provider registry: quản lý danh sách provider
-    │       ├── openai-compatible.ts    # Provider cho OpenAI-compatible API (parse reasoning_content + usage)
-    │       ├── anthropic.ts            # Provider cho Anthropic (Claude)
-    │       ├── google-gemini.ts        # Provider cho Google Gemini
-    │       └── cohere.ts               # Provider cho Cohere
+    │   ├── providers/         # Hệ thống multi-provider
+    │   │   ├── base-provider.ts        # Abstract base class + resolveEndpoint() helper
+    │   │   ├── registry.ts             # Provider registry + log khi tạo provider
+    │   │   ├── openai-compatible.ts    # Provider cho OpenAI-compatible API (streaming SSE, reasoning, tool calls)
+    │   │   ├── anthropic.ts            # Provider cho Anthropic (Claude)
+    │   │   ├── google-gemini.ts        # Provider cho Google Gemini
+    │   │   └── cohere.ts               # Provider cho Cohere
+    │   │
+    │   └── tools/             # Framework tool calling cho AI
+    │       ├── types.ts       # Định nghĩa Tool, ToolCall, ToolResult, NativeToolFormat
+    │       ├── registry.ts    # ToolRegistry class: register, execute, getNativeTools
+    │       ├── read-file.ts   # Tool "read_file" — đọc nội dung file
+    │       └── index.ts       # Export + auto-register các tool
     │
     └── ui/                    # Tầng giao diện (React components)
         ├── app.tsx            # Component gốc: state management + UI mode routing
-        │                       #   - expandedThinkingIndices: Set<number> — trạng thái toggle thinking
-        │                       #   - useInput bắt Ctrl+O: toggle tất cả khối suy nghĩ
-        │                       #   - handleSendMessage: parse ChatCompletionResult → Message
+        │                       #   - Stable mode (Ctrl+I): ổn định IME tiếng Việt khi streaming
+        │                       #   - expandedThinkingIndices + Ctrl+O: toggle khối suy nghĩ
+        │                       #   - Xử lý chunk error, lệnh /logs, /tool-mode
         │
         └── components/        # Các component con
             ├── TerminalTop.tsx        # Header: ASCII art, thông tin hệ thống, đồng hồ
@@ -104,7 +112,11 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 |-----------|--------|-------|
 | `Message` | `role`, `content`, `timestamp`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?` | Tin nhắn trong lịch sử chat, hỗ trợ reasoning/thinking |
 | `ChatCompletionResult` | `content`, `reasoning?`, `usage?` | Kết quả trả về từ provider chat |
-| `ChatStreamChunk` | `type: 'reasoning' \| 'content' \| 'done'`, `text?`, `usage?` | Mỗi chunk trong streaming response |
+| `ChatStreamChunk` | `type: 'reasoning' \| 'content' \| 'done' \| 'error' \| 'tool_call' \| 'tool_result'`, `text?`, `usage?`, `error?`, `toolCall?`, `toolResult?` | Mỗi chunk trong streaming response |
+| `ToolParseMode` | `'auto' \| 'native' \| 'xml'` | Chế độ parse tool call |
+| `Tool` | `name`, `description`, `parameters`, `execute` | Định nghĩa một tool cho AI gọi |
+| `ToolCall` | `id`, `name`, `arguments` | Một lời gọi tool từ AI |
+| `ToolResult` | `toolCallId`, `content`, `isError?` | Kết quả thực thi tool |
 | `Usage` | `promptTokens`, `completionTokens`, `reasoningTokens`, `totalTokens` | Thống kê token usage |
 | `ProviderConfig` | `id`, `name`, `type`, `apiKey`, `endpoint?`, `models` | Cấu hình một provider AI |
 | `ProviderType` | `'openai' \| 'anthropic' \| 'google-gemini' \| 'cohere'` | Loại provider được hỗ trợ |
@@ -115,6 +127,8 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Đọc/ghi file cấu hình JSON (`~/.LunaCoding/setting.json`)
 - Quản lý danh sách provider, model, API keys
 - Hỗ trợ: `loadConfig()`, `saveConfig()`, `addProvider()`, `removeProvider()`, `setCurrentProvider()`, `setDefaultModel()`, `updateProviderModels()`
+- `getToolParseMode()`: lấy chế độ parse tool hiện tại (`'auto' | 'native' | 'xml'`)
+- `setToolParseMode(mode)`: lưu chế độ parse tool vào config
 - Tự động tạo file config mặc định nếu chưa tồn tại
 
 ### `src/services/crypto.ts` – Mã hóa API Keys
@@ -123,12 +137,30 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Hỗ trợ: `encrypt(plainText)`, `decrypt(encryptedText)`
 - Key được derive từ `os.hostname()` + `os.userInfo().username` để mỗi máy có key riêng
 
+### `src/services/logger.ts` – Hệ thống Logging
+- Ghi log xoay vòng vào `~/.LunaCoding/logs/lunacoding.log`
+- Giới hạn **1000 dòng** cuối, tự động cắt dòng cũ
+- `log(level, message, meta?)`: ghi log với timestamp, level (DEBUG/INFO/WARN/ERROR/FATAL) và metadata JSON
+- `logError(context, error)`: ghi log ERROR kèm stack trace
+- `getLogs(lines?)`: đọc N dòng log cuối (mặc định 50)
+- `clearLogs()`: xóa toàn bộ file log
+- Tự động tạo thư mục `~/.LunaCoding/logs/` với permission `0o700`
+
+### `src/services/xml-parser.ts` – XML Parser cho Tool Calling
+- Parse XML tool call thô từ text response (dành cho provider không hỗ trợ native tool calling)
+- Hỗ trợ cú pháp `<tool_call><name>...</name><arguments>{...}</arguments></tool_call>`
+- `parseXmlToolCalls(text)`: trả về mảng `ToolCall[]` từ text
+- `hasXmlToolCalls(text)`: kiểm tra text có chứa tool call XML không
+- Xử lý nhiều tool call trong cùng một response, hỗ trợ XML comment và khoảng trắng linh hoạt
+
 ### `src/services/chat.ts` – API Service
 - **Hàm:** `sendChatMessage(messages: Message[]): Promise<ChatCompletionResult>`
 - Trả về `ChatCompletionResult` với `content`, `reasoning` (nếu có), và `usage` (nếu có)
 - Nếu chưa có provider, trả về `{ content: '...hướng dẫn...' }`
 - **Hàm:** `sendChatMessageStream(messages: Message[]): AsyncIterable<ChatStreamChunk>`
-- Async generator gọi `provider.chatStream()` và yield từng chunk reasoning/content/done
+- Async generator gọi `provider.chatStream()` với try-catch toàn diện
+- Yield các chunk: `reasoning`, `content`, `tool_call`, `tool_result`, `error`, `done`
+- Khi provider throw lỗi → yield chunk `error` + ghi log qua `logError()`
 - Nếu chưa có provider, yield chunk done rỗng
 
 ### `src/services/providers/` – Hệ thống Multi-Provider
@@ -140,18 +172,26 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   - `chatStream(messages, model?): AsyncIterable<ChatStreamChunk>` — gửi chat request dạng streaming, trả về các chunk reasoning/content/done
   - `listModels(): Promise<string[]>` — lấy danh sách model
   - `testConnection(): Promise<TestConnectionResult>` — kiểm tra kết nối
+  - `resolveEndpoint(path: string): string` — helper nối baseUrl + path, tự động tránh duplicate `/v1`
 - `static getDefaultBaseUrl(): string` — URL mặc định cho từng provider
 
 #### `registry.ts` – Provider Registry
 - `createProvider(config: ProviderConfig): BaseProvider` — factory tạo provider instance
+- Ghi log khi tạo provider mới
 - Map type provider → class implementation
 
 #### `openai-compatible.ts` – OpenAI-Compatible Provider
 - Hỗ trợ mọi API tương thích OpenAI (OpenAI, DeepSeek, xAI, v.v.)
-- Endpoint: `{baseURL}/v1/chat/completions`
+- Endpoint: `resolveEndpoint('/v1/chat/completions')` — tránh duplicate `/v1`
 - **Parse reasoning_content**: từ `message.reasoning_content`
 - **Parse usage**: `prompt_tokens`, `completion_tokens`, `completion_tokens_details.reasoning_tokens`, `total_tokens`
-- **Streaming**: `chatStream()` gọi API với `stream: true`, parse SSE chunks (`delta.reasoning_content` → reasoning, `delta.content` → content, chunk có `usage` → done)
+- **Streaming**: `chatStream()` gọi API với `stream: true`, parse SSE chunks đúng cấu trúc `data?.choices?.[0]?.delta`:
+  - `delta.reasoning_content` → reasoning
+  - `delta.content` → content
+  - `finish_reason` → kiểm tra kết thúc
+  - chunk có `usage` → done
+- **Log lỗi**: ghi `logError()` khi parse SSE thất bại hoặc axios request lỗi
+- **`stream_options`**: đã comment `include_usage` để tương thích với proxy tự host
 
 #### `anthropic.ts` – Anthropic Provider
 - Hỗ trợ Anthropic Claude models
@@ -171,6 +211,34 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Role: `USER` / `CHATBOT` (viết hoa)
 - **Streaming**: `chatStream()` fallback — gọi `chat()` rồi yield toàn bộ content + done
 
+### `src/services/tools/` – Framework Tool Calling cho AI
+
+#### `types.ts` – Tool Type Definitions
+- `Tool`: interface định nghĩa một tool với `name`, `description`, `parameters` (JSON Schema), và `execute` function
+- `ToolCall`: lời gọi tool từ AI (`id`, `name`, `arguments`)
+- `ToolResult`: kết quả thực thi (`toolCallId`, `content`, `isError?`)
+- `NativeToolFormat`: định dạng tool schema cho native API (`'openai' | 'anthropic'`)
+- `ToolRegistry`: interface registry với `register`, `get`, `getAll`, `getNativeTools`, `execute`, `toToolMessages`
+
+#### `registry.ts` – ToolRegistry Implementation
+- Singleton `toolRegistry` instance
+- `register(tool)`: đăng ký tool mới, kiểm tra trùng tên
+- `get(name)`: lấy tool theo tên
+- `getAll()`: lấy tất cả tool đã đăng ký
+- `getNativeTools(format)`: trả về tool schema theo format native (OpenAI function calling hoặc Anthropic tool use)
+- `execute(name, args)`: thực thi tool, bọc try-catch, trả về `ToolResult` (có `isError: true` nếu lỗi)
+- `toToolMessages(results)`: chuyển mảng `ToolResult` thành messages định dạng OpenAI để gửi lại cho model
+
+#### `read-file.ts` – Tool "read_file"
+- `name`: `"read_file"` — đọc nội dung file từ đường dẫn
+- `parameters`: `path` (string, required) — đường dẫn file cần đọc
+- `execute`: dùng `fs.readFileSync` với encoding UTF-8, giới hạn 50000 ký tự
+- Trả về nội dung file hoặc thông báo lỗi nếu file không tồn tại/không đọc được
+
+#### `index.ts` – Entry Point
+- Export `toolRegistry` instance
+- Auto-register tool `read_file` khi import
+
 ### `src/ui/app.tsx` – Root Component
 - **State:**
   - `messages: Message[]` — lịch sử chat
@@ -179,18 +247,31 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   - `streamingPhase: 'thinking' | 'responding' | null` — giai đoạn streaming hiện tại
   - `expandedThinkingIndices: Set<number>` — index của các message đang mở thinking
   - `uiMode: UiMode` — chế độ giao diện hiện tại
+  - `stableMode: boolean` — chế độ ổn định IME tiếng Việt khi streaming
   - Các state cho provider/model management
 - **Keyboard shortcut:**
+  - `Ctrl+I`: toggle Stable Mode — khi bật, stream buffer thay đổi vào `streamBufferRef` thay vì gọi `setMessages()`, giúp ổn định con trỏ IME tiếng Việt (fcitx-bamboo). Khi tắt, `useEffect` flush buffer vào state.
   - `Ctrl+O`: toggle tất cả khối suy nghĩ (mở tất cả nếu có block đang đóng, đóng tất cả nếu tất cả đang mở); khi đang streaming, toggle thinking của message đang stream
+- **Xử lý lệnh slash:**
+  - `/logs` → hiển thị 50 dòng log cuối
+  - `/logs all` → hiển thị toàn bộ log
+  - `/logs clear` → xóa log
+  - `/tool-mode` hoặc `/tm` → xem chế độ gọi tool hiện tại
+  - `/tool-mode auto|native|xml` hoặc `/tm auto|native|xml` → đổi chế độ gọi tool
+- **Xử lý chunk error:** hiển thị thông báo lỗi thân thiện với prefix `● LunaCoding:` kèm gợi ý `💡 Dùng \`/logs\` để xem chi tiết lỗi.`
 - **Luồng xử lý gửi tin nhắn (streaming):**
   1. Tạo `userMessage` từ input
   2. Tạo placeholder `assistantMessage` (content rỗng) → append cùng userMessage
-  3. `setIsStreaming(true)`, `setStreamingPhase(null)`
+  3. `setIsStreaming(true)`, `setStreamingPhase(null)`, mặc định mở thinking
   4. `for await (chunk)` từ `sendChatMessageStream()`:
      - reasoning chunk → `setStreamingPhase('thinking')`, cập nhật `reasoningContent`
      - content chunk → `setStreamingPhase('responding')`, cập nhật `content`
+     - tool_call chunk → thêm block `🔧 **Gọi tool:**` vào content
+     - tool_result chunk → thêm block `✅/❌ **Kết quả tool:**` vào content
+     - error chunk → hiển thị lỗi, kết thúc stream
      - done chunk → `setStreamingPhase(null)`, cập nhật token usage
-  5. `setIsLoading(false)`, `setIsStreaming(false)`
+  5. Nếu không có phản hồi và không có lỗi → fallback message
+  6. `setIsLoading(false)`, `setIsStreaming(false)`
 
 ### `src/ui/components/TerminalTop.tsx` – Header
 - Đọc 2 file ASCII art (`ascii-art.txt`, `ascii-name.txt`)
@@ -234,7 +315,12 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - **Thinking toggle row:** Khi có `reasoningContent`, hiển thị:
   - `▶ Suy nghĩ` hoặc `▼ Suy nghĩ` + `(đang cập nhật...)` khi streaming, hoặc `(N tk)` khi đã có token count
 - **Expanded thinking content:** Khi `isThinkingExpanded`, hiển thị toàn bộ `reasoningContent` với màu xám `#666666`, prefix `│`
-- **Main response:** `●` xám + nội dung wrap + cursor `▍` khi đang streaming
+- **Split content thành các phần:** Hàm `splitContent()` parse nội dung thành text thường và các block tool call/result:
+  - `🔧 **Gọi tool:**` → màu cyan, bold
+  - `✅ **Kết quả tool:**` → màu xanh lá
+  - `❌ **Kết quả tool:**` → màu đỏ
+  - Có guard clause `if (!content) return []` chống crash khi content undefined
+- **Main response:** `●` xám + nội dung wrap với màu sắc phân biệt tool blocks
 - **Token info footer:** `{completionTokens} tk phản hồi · tổng {totalTokens} tk` (dimColor, canh phải) — ẩn khi đang streaming
 
 ### `src/ui/components/LoadingIndicator.tsx` – Loading Indicator
@@ -251,9 +337,14 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - **Gợi ý lệnh slash:** khi gõ `/` (chưa có khoảng trắng) hiện danh sách lệnh khớp từ `commands.ts`, nhấn **Tab** để tự động hoàn thành lệnh đầu tiên
 
 ### `src/services/commands.ts` – Đăng ký & Gợi ý lệnh Slash
-- Mảng `registeredCommands` định nghĩa tất cả lệnh slash với `name`, `description`, `aliases?`
+- Mảng `registeredCommands` định nghĩa tất cả lệnh slash:
+  - `/provider` (alias `/providers`) — Quản lý provider
+  - `/model` (alias `/models`) — Quản lý model
+  - `/logs` — Xem log hệ thống
+  - `/tool-mode` (alias `/tm`) — Xem/đổi chế độ gọi tool (auto/native/xml)
+  - `/help` (alias `/h`) — Trợ giúp
 - Hàm `filterCommands(query)`: lọc lệnh theo chuỗi sau dấu `/`, tìm kiếm mờ trên tên chính và alias
-- Hàm `isKnownCommand(input)`: kiểm tra input có khớp với lệnh đã đăng ký
+- Hàm `isKnownCommand(input)`: kiểm tra input có khớp với lệnh đã đăng ký (hỗ trợ cả lệnh kèm tham số)
 - Hàm `getAllCommandNames()`: trả về mảng phẳng tất cả tên lệnh và alias
 
 ### `src/ui/components/ProviderMenu.tsx` – Danh sách Provider
@@ -347,6 +438,7 @@ TerminalBottom re-render ← isLoading = false
 
 | Phím | Chế độ | Chức năng |
 |------|--------|-----------|
+| `Ctrl+I` | Chat | Toggle Stable Mode — ổn định IME tiếng Việt khi streaming, buffer thay đổi thay vì re-render liên tục |
 | `Ctrl+O` | Chat | Toggle tất cả khối suy nghĩ (reasoning) của assistant; khi đang streaming, toggle thinking của message đang stream |
 | `Tab` | Chat (gợi ý lệnh) | Tự động hoàn thành lệnh slash đầu tiên trong danh sách gợi ý |
 | `Esc` | Provider/Model menu | Quay lại màn hình trước |
