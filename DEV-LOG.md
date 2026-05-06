@@ -248,3 +248,43 @@ Triển khai streaming cho cả thinking (reasoning) và response (nội dung ch
 | Model đang trả lời | Nội dung response xuất hiện từng chữ, cursor `▍` nhấp nháy |
 | Ctrl+O lúc streaming | Toggle ẩn/hiện phần thinking của message đang stream |
 | Hoàn tất | Token count xuất hiện, cursor biến mất |
+
+## [6] 2026-05-06 — Gợi ý lệnh Slash (Autocomplete)
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Thêm chức năng tự động gợi ý lệnh khi người dùng nhập `/` trong input chat. Danh sách lệnh được đăng ký tập trung trong một file riêng, hỗ trợ tìm kiếm mờ, tự động hoàn thành bằng phím Tab.
+
+### Các thay đổi
+
+#### 1. File đăng ký lệnh (`src/services/commands.ts`) — MỚI
+- Định nghĩa mảng `registeredCommands` chứa tất cả lệnh slash:
+  - `/provider` (alias `/providers`) — Quản lý provider
+  - `/model` (alias `/models`) — Quản lý model
+  - `/help` (alias `/h`) — Trợ giúp
+- Mỗi lệnh có `name`, `description` (tiếng Việt), và `aliases?` tùy chọn
+- Hàm `filterCommands(query)`: lọc lệnh theo chuỗi sau dấu `/`, tìm kiếm mờ trên cả tên chính và alias
+- Hàm `isKnownCommand(input)`: kiểm tra input có khớp chính xác với một lệnh đã đăng ký (hỗ trợ cả tên chính, alias, và lệnh kèm tham số)
+- Hàm `getAllCommandNames()`: trả về mảng phẳng tất cả tên lệnh và alias
+
+#### 2. Types (`src/services/types.ts`)
+- Thêm interface `Command` với `name: string`, `description: string`, `aliases?: string[]`
+
+#### 3. TerminalBottom (`src/ui/components/TerminalBottom.tsx`)
+- **Import** `useCallback`, `useMemo`, `useInput` từ Ink; `filterCommands`, `isKnownCommand` từ `commands.ts`
+- **State `showSuggestions`**: kiểm soát hiển thị khung gợi ý
+- **`useMemo` tính `suggestions`**: lọc lệnh dựa trên input hiện tại (chỉ khi bắt đầu bằng `/`)
+- **`handleChange`**: mở gợi ý khi input bắt đầu bằng `/` và chưa có khoảng trắng; đóng gợi ý khi ngược lại
+- **`useInput` (Tab)**: khi đang hiện gợi ý và có ít nhất một lệnh khớp → tự động điền lệnh đầu tiên kèm dấu cách, đóng gợi ý
+- **`renderSuggestions()`**: hiển thị danh sách lệnh khớp với `💡` màu vàng đậm, alias trong ngoặc đơn, mô tả dim; khi không có lệnh khớp hiện thông báo hướng dẫn gõ `/help`
+- **`handleSubmit`**: thay thế mảng `knownCommands` cứng bằng `isKnownCommand()`, hành vi giữ nguyên
+- Cập nhật placeholder và hint text phù hợp với tính năng mới
+
+### Cách hoạt động
+| Thao tác | Kết quả |
+|----------|---------|
+| Gõ `/` | Hiện toàn bộ danh sách lệnh kèm mô tả |
+| Gõ `/pro` | Danh sách thu hẹp chỉ còn `/provider` |
+| Nhấn **Tab** | Tự động điền lệnh đầu tiên + dấu cách (vd: `/provider `) |
+| Nhấn **Enter** | Thực thi lệnh (hành vi không đổi) |
+| Gõ lệnh không tồn tại + Enter | App hiển thị thông báo lỗi "Lệnh không được hỗ trợ" |

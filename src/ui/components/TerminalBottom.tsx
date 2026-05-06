@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
+import { useInput } from 'ink';
 import type { UiMode } from '../../services/types.js';
+import { filterCommands, isKnownCommand } from '../../services/commands.js';
 
 interface TerminalBottomProps {
   onSend: (input: string) => void;
@@ -19,6 +21,43 @@ const TerminalBottom = ({
   stableMode,
 }: TerminalBottomProps) => {
   const [inputValue, setInputValue] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // ── Lọc lệnh gợi ý dựa trên input hiện tại ──────────────────
+  const suggestions = useMemo(() => {
+    if (!inputValue.startsWith('/')) return [];
+    const query = inputValue.slice(1); // bỏ dấu /
+    return filterCommands(query);
+  }, [inputValue]);
+
+  // ── Xử lý thay đổi input ─────────────────────────────────────
+  const handleChange = useCallback(
+    (value: string) => {
+      setInputValue(value);
+      // Chỉ hiện gợi ý khi bắt đầu bằng / và không có khoảng trắng
+      // (tức là đang gõ lệnh, chưa gõ tham số)
+      if (value.startsWith('/') && !value.includes(' ')) {
+        setShowSuggestions(true);
+      } else {
+        setShowSuggestions(false);
+      }
+    },
+    [],
+  );
+
+  // ── Tab: tự động hoàn thành lệnh đầu tiên ──────────────────
+  useInput(
+    (_input, key) => {
+      if (key.tab && showSuggestions && suggestions.length > 0) {
+        const top = suggestions[0];
+        if (top) {
+          setInputValue(top.name + ' ');
+          setShowSuggestions(false);
+        }
+      }
+    },
+    { isActive: showSuggestions && suggestions.length > 0 },
+  );
 
   const handleSubmit = (value: string) => {
     if (isLoading) return;
@@ -27,27 +66,55 @@ const TerminalBottom = ({
 
     // Nếu bắt đầu bằng /, kiểm tra xem có phải lệnh không
     if (trimmed.startsWith('/')) {
-      // Các lệnh đã biết: /provider, /model, /help, /h
-      const knownCommands = ['/provider', '/providers', '/model', '/models', '/help', '/h'];
-      const lower = trimmed.toLowerCase();
-      const isKnown = knownCommands.some((cmd) => lower === cmd || lower.startsWith(cmd + ' '));
-
-      if (isKnown) {
+      if (isKnownCommand(trimmed)) {
         onCommand(trimmed);
         setInputValue('');
+        setShowSuggestions(false);
         return;
       }
-      // Nếu bắt đầu bằng / nhưng không phải lệnh đã biết,
-      // vẫn fall through để gửi như tin nhắn thường (để AI xử lý)
-      // hoặc gửi cho onCommand để hiện "lệnh không xác định"
+      // Lệnh không xác định, gửi lên onCommand để hiện lỗi
       onCommand(trimmed);
       setInputValue('');
+      setShowSuggestions(false);
       return;
     }
 
     // Tin nhắn thường
     onSend(trimmed);
     setInputValue('');
+    setShowSuggestions(false);
+  };
+
+  // ── Render danh sách gợi ý ──────────────────────────────────
+  const renderSuggestions = () => {
+    if (!showSuggestions || uiMode !== 'chat') return null;
+
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        {suggestions.length > 0 ? (
+          suggestions.map((cmd, i) => (
+            <Box key={cmd.name} flexDirection="row">
+              <Text>
+                {i === 0 ? '💡 ' : '   '}
+                <Text color="yellow" bold>
+                  {cmd.name}
+                </Text>
+                {cmd.aliases && cmd.aliases.length > 0 && (
+                  <Text dimColor> ({cmd.aliases.join(', ')})</Text>
+                )}
+                <Text dimColor> — {cmd.description}</Text>
+              </Text>
+            </Box>
+          ))
+        ) : (
+          <Box>
+            <Text dimColor>💡 Không tìm thấy lệnh khớp. Gõ </Text>
+            <Text color="yellow" bold>/help</Text>
+            <Text dimColor> để xem danh sách lệnh.</Text>
+          </Box>
+        )}
+      </Box>
+    );
   };
 
   // ── Menu mode: ẩn TextInput, chỉ hiện status bar ──────────────
@@ -96,22 +163,25 @@ const TerminalBottom = ({
         </Text>
         <TextInput
           value={inputValue}
-          onChange={setInputValue}
+          onChange={handleChange}
           onSubmit={handleSubmit}
           placeholder={
             isLoading
               ? 'Đang chờ AI trả lời...'
-              : 'Nhập tin nhắn hoặc lệnh (/provider, /model, /help)...'
+              : 'Nhập tin nhắn hoặc lệnh (/). Gõ /help để xem tất cả lệnh...'
           }
         />
       </Box>
-      <Box marginTop={1}>
-        <Text dimColor>
-          {isLoading
-            ? '⏳ Đang xử lý, vui lòng đợi...'
-            : '💡 Gợi ý: /provider — quản lý provider | /model — quản lý model | /help — trợ giúp'}
-        </Text>
-      </Box>
+      {renderSuggestions()}
+      {!showSuggestions && (
+        <Box marginTop={1}>
+          <Text dimColor>
+            {isLoading
+              ? '⏳ Đang xử lý, vui lòng đợi...'
+              : '💡 Gợi ý: Nhập / để xem danh sách lệnh | Tab để tự động hoàn thành'}
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 };

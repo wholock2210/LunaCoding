@@ -28,7 +28,8 @@ LunaCoding/
     │   ├── chat.ts            # Giao tiếp với AI proxy: trả về ChatCompletionResult (content + reasoning + usage)
     │   ├── config.ts          # Quản lý cấu hình: đọc/ghi file config, API keys
     │   ├── crypto.ts          # Mã hóa/giải mã API keys (AES-256-GCM)
-    │   ├── types.ts           # Định nghĩa interface Message, ChatCompletionResult, ProviderConfig, v.v.
+    │   ├── types.ts           # Định nghĩa interface Message, ChatCompletionResult, Command, ProviderConfig, v.v.
+    │   ├── commands.ts        # Đăng ký lệnh slash (/provider, /model, /help) + filter + autocomplete
     │   │
     │   └── providers/         # Hệ thống multi-provider
     │       ├── base-provider.ts        # Abstract base class: chat() → ChatCompletionResult
@@ -49,7 +50,7 @@ LunaCoding/
             ├── TerminalMid.tsx        # Router component: điều hướng giữa các màn hình
             │                           #   - ChatView: hiển thị messages + ResponseBlock + LoadingIndicator
             │                           #   - Khi loading: hiển thị "đang suy nghĩ..." + gợi ý Ctrl+O
-            ├── TerminalBottom.tsx     # Input bar: nhập tin nhắn, gửi, parse lệnh /
+            ├── TerminalBottom.tsx     # Input bar: nhập tin nhắn, gửi, gợi ý lệnh / (autocomplete + Tab)
             ├── ResponseBlock.tsx      # Hiển thị một phản hồi assistant:
             │                           #   - Thinking toggle (▶/▼) + reasoning content (màu xám)
             │                           #   - Token count footer (tk phản hồi · tổng tk)
@@ -107,6 +108,7 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 | `Usage` | `promptTokens`, `completionTokens`, `reasoningTokens`, `totalTokens` | Thống kê token usage |
 | `ProviderConfig` | `id`, `name`, `type`, `apiKey`, `endpoint?`, `models` | Cấu hình một provider AI |
 | `ProviderType` | `'openai' \| 'anthropic' \| 'google-gemini' \| 'cohere'` | Loại provider được hỗ trợ |
+| `Command` | `name`, `description`, `aliases?` | Định nghĩa một lệnh slash |
 | `UiMode` | `'chat' \| 'provider-list' \| 'provider-type-select' \| 'provider-add-form' \| 'model-list'` | Chế độ giao diện |
 
 ### `src/services/config.ts` – Quản lý cấu hình
@@ -241,11 +243,18 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 - Màu tối (`#446688`) khi không có sóng, màu sáng (`#88ccff` → `#bbffff`) khi sóng đi qua
 
 ### `src/ui/components/TerminalBottom.tsx` – Input Bar
-- Nhận props: `onSend`, `onCommand`, `isLoading`, `uiMode`
+- Nhận props: `onSend`, `onCommand`, `isLoading`, `uiMode`, `stableMode`
 - Dùng `ink-text-input` cho ô nhập liệu
 - Prompt `>` màu xanh lá (vàng khi loading)
 - Parse input: lệnh `/` → gọi `onCommand`, text thường → gọi `onSend`
 - Disable input khi `isLoading === true`
+- **Gợi ý lệnh slash:** khi gõ `/` (chưa có khoảng trắng) hiện danh sách lệnh khớp từ `commands.ts`, nhấn **Tab** để tự động hoàn thành lệnh đầu tiên
+
+### `src/services/commands.ts` – Đăng ký & Gợi ý lệnh Slash
+- Mảng `registeredCommands` định nghĩa tất cả lệnh slash với `name`, `description`, `aliases?`
+- Hàm `filterCommands(query)`: lọc lệnh theo chuỗi sau dấu `/`, tìm kiếm mờ trên tên chính và alias
+- Hàm `isKnownCommand(input)`: kiểm tra input có khớp với lệnh đã đăng ký
+- Hàm `getAllCommandNames()`: trả về mảng phẳng tất cả tên lệnh và alias
 
 ### `src/ui/components/ProviderMenu.tsx` – Danh sách Provider
 - Hiển thị danh sách provider đã cấu hình
@@ -339,5 +348,6 @@ TerminalBottom re-render ← isLoading = false
 | Phím | Chế độ | Chức năng |
 |------|--------|-----------|
 | `Ctrl+O` | Chat | Toggle tất cả khối suy nghĩ (reasoning) của assistant; khi đang streaming, toggle thinking của message đang stream |
+| `Tab` | Chat (gợi ý lệnh) | Tự động hoàn thành lệnh slash đầu tiên trong danh sách gợi ý |
 | `Esc` | Provider/Model menu | Quay lại màn hình trước |
 | `Enter` | Chat | Gửi tin nhắn |

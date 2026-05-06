@@ -45,6 +45,13 @@ export interface TestConnectionResult {
   message: string;
 }
 
+/** Định nghĩa một lệnh slash */
+export interface Command {
+  name: string;
+  description: string;
+  aliases?: string[];
+}
+
 /** Các chế độ UI */
 export type UiMode = 'chat' | 'provider-list' | 'provider-type-select' | 'provider-add-form' | 'model-list';
 
