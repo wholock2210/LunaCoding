@@ -26,6 +26,7 @@ interface ChatModeProps {
 	isStreaming: boolean;
 	streamingPhase: 'thinking' | 'responding' | null;
 	expandedThinkingIndices: Set<number>;
+	expandedToolIndices: Set<number>;
 }
 
 interface ProviderListModeProps {
@@ -81,7 +82,7 @@ interface TerminalMidProps {
 
 // ─── Component chat ───────────────────────────────────────────────────
 
-const ChatView = React.memo(({ messages, isLoading, isStreaming, streamingPhase, expandedThinkingIndices }: ChatModeProps) => {
+const ChatView = React.memo(({ messages, isLoading, isStreaming, streamingPhase, expandedThinkingIndices, expandedToolIndices }: ChatModeProps) => {
 	const showLoadingIndicator = isLoading || isStreaming;
 
 	return (
@@ -124,7 +125,9 @@ const ChatView = React.memo(({ messages, isLoading, isStreaming, streamingPhase,
 								completionTokens={msg.completionTokens}
 								totalTokens={msg.totalTokens}
 								isThinkingExpanded={expandedThinkingIndices.has(index)}
+								isToolExpanded={expandedToolIndices.has(index)}
 								isStreaming={isStreaming && index === messages.length - 1}
+								toolCalls={msg.toolCalls}
 							/>
 						),
 					)}
@@ -162,13 +165,14 @@ const TerminalMid = ({
 		// ── Chat mode ──────────────────────────────────────────────
 		case 'chat':
 			return (
-				<ChatView
-					messages={chatProps.messages}
-					isLoading={chatProps.isLoading}
-					isStreaming={chatProps.isStreaming}
-					streamingPhase={chatProps.streamingPhase}
-					expandedThinkingIndices={chatProps.expandedThinkingIndices}
-				/>
+			<ChatView
+				messages={chatProps.messages}
+				isLoading={chatProps.isLoading}
+				isStreaming={chatProps.isStreaming}
+				streamingPhase={chatProps.streamingPhase}
+				expandedThinkingIndices={chatProps.expandedThinkingIndices}
+				expandedToolIndices={chatProps.expandedToolIndices}
+			/>
 			);
 
 		// ── Provider list mode ────────────────────────────────────

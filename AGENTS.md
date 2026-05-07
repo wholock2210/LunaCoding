@@ -147,5 +147,4 @@ npm test
 |------|-----------|----------|
 | `ascii-art.txt` | Text + tag màu | Logo trang trí bên trái TerminalTop |
 | `ascii-name.txt` | Text + tag màu | Chữ "LunaCoding" bên phải TerminalTop |
-| `ascii-art-example-colored.txt` | Text + tag màu | File mẫu hướng dẫn cú pháp |
 | `color-palette.md` | Markdown | Tài liệu tham khảo màu sắc |

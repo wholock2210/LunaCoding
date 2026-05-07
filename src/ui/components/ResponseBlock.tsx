@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
+import type { ToolCallRecord, ToolCallState } from '../../services/types.js';
 
 interface ResponseBlockProps {
   content: string;
@@ -9,85 +10,123 @@ interface ResponseBlockProps {
   totalTokens?: number;
   isThinkingExpanded: boolean;
   isStreaming?: boolean;
+  isToolExpanded: boolean;
+  toolCalls?: ToolCallRecord[];
 }
 
+// ─── Màu sắc ────────────────────────────────────────────────
 const thinkingColor = '#888888';
 const dimThinkingColor = '#666666';
-const toolColor = '#00ffff'; // cyan
-const toolResultSuccessColor = '#00ff88';
-const toolResultErrorColor = '#ff4444';
+const dimColor = '#666666';
+const runningColor = '#00ffff';
+const successColor = '#00ff88';
+const errorColor = '#ff4444';
 
-/**
- * Parse nội dung message thành các đoạn text và tool block để hiển thị màu riêng.
- * Tool call: dòng bắt đầu bằng "🔧 **Gọi tool:"
- * Tool result: dòng bắt đầu bằng "✅ **Kết quả tool:" hoặc "❌ **Kết quả tool:"
- */
-function splitContent(content: string): Array<{ type: 'text' | 'tool_call' | 'tool_result_error' | 'tool_result_success'; text: string }> {
-  if (!content) return [];
-  const parts: Array<{ type: 'text' | 'tool_call' | 'tool_result_error' | 'tool_result_success'; text: string }> = [];
-  const lines = content.split('\n');
-  let buffer = '';
-  let currentType: 'text' | 'tool_call' | 'tool_result_error' | 'tool_result_success' = 'text';
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-
-    // Phát hiện dòng tool call
-    if (line.startsWith('🔧 **Gọi tool:')) {
-      if (buffer) {
-        parts.push({ type: currentType, text: buffer });
-        buffer = '';
-      }
-      currentType = 'tool_call';
-      buffer = line;
-      continue;
-    }
-
-    // Phát hiện dòng tool result
-    if (line.startsWith('✅ **Kết quả tool:')) {
-      if (buffer) {
-        parts.push({ type: currentType, text: buffer });
-        buffer = '';
-      }
-      currentType = 'tool_result_success';
-      buffer = line;
-      continue;
-    }
-    if (line.startsWith('❌ **Kết quả tool:')) {
-      if (buffer) {
-        parts.push({ type: currentType, text: buffer });
-        buffer = '';
-      }
-      currentType = 'tool_result_error';
-      buffer = line;
-      continue;
-    }
-
-    // Dòng thường → thêm vào buffer hiện tại
-    if (buffer) {
-      buffer += '\n' + line;
-    } else {
-      buffer = line;
-    }
-  }
-
-  if (buffer) {
-    parts.push({ type: currentType, text: buffer });
-  }
-
-  return parts;
-}
-
-/** Chọn màu cho từng loại part */
-function getPartColor(type: string): string | undefined {
-  switch (type) {
-    case 'tool_call': return toolColor;
-    case 'tool_result_success': return toolResultSuccessColor;
-    case 'tool_result_error': return toolResultErrorColor;
-    default: return undefined;
+// ─── Helpers ────────────────────────────────────────────────
+function getStateColor(state: ToolCallState): string {
+  switch (state) {
+    case 'running': return runningColor;
+    case 'success': return successColor;
+    case 'error': return errorColor;
+    default: return runningColor;
   }
 }
 
+function getStateIcon(state: ToolCallState): string {
+  switch (state) {
+    case 'running': return '▶';
+    case 'success': return '✓';
+    case 'error': return '✗';
+    default: return '▶';
+  }
+}
+
+function getStatusText(name: string, state: ToolCallState): string {
+  const display = name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  switch (state) {
+    case 'running': return `Đang ${display.toLowerCase()}...`;
+    case 'success': return `${display} thành công`;
+    case 'error': return `${display} thất bại`;
+    default: return display;
+  }
+}
+
+function getFileName(record: ToolCallRecord): string | undefined {
+  const args = record.arguments;
+  if (args && typeof args === 'object' && 'path' in args) {
+    const p = args['path'];
+    if (typeof p === 'string') {
+      return p.split('/').pop() ?? p;
+    }
+  }
+  return undefined;
+}
+
+// ─── Animation components ───────────────────────────────────
+const RunningDots = React.memo(() => {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame(f => f + 1), 300);
+    return () => clearInterval(id);
+  }, []);
+  return <Text>{'.'.repeat((frame % 3) + 1)}</Text>;
+});
+
+const LoadingBar = React.memo(() => {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame(f => f + 1), 120);
+    return () => clearInterval(id);
+  }, []);
+  const barW = 8;
+  const filled = frame % (barW * 2);
+  const pos = filled < barW ? filled : barW * 2 - filled - 1;
+  const chars = Array.from({ length: barW }, (_, i) => i <= pos ? '▓' : '░');
+  return <Text>[{chars.join('')}]</Text>;
+});
+
+// ─── Tool row ───────────────────────────────────────────────
+const ToolRow = React.memo(({ record, isLast, totalCount, showCount }: {
+  record: ToolCallRecord;
+  isLast: boolean;
+  totalCount: number;
+  showCount: boolean;
+}) => {
+  const color = getStateColor(record.state);
+  const icon = getStateIcon(record.state);
+  const status = getStatusText(record.name, record.state);
+  const fileName = getFileName(record);
+  const displayDetail = fileName
+    ? `${icon} ${record.name}(${fileName})`
+    : `${icon} ${record.name}`;
+  const isRunning = record.state === 'running';
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Text color={color}>● {status}</Text>
+        {isRunning && <RunningDots />}
+      </Box>
+      <Box flexDirection="row" paddingLeft={2}>
+        <Text color={color}>╰ {displayDetail}</Text>
+      </Box>
+      {showCount && isLast && (
+        <Box flexDirection="row" paddingLeft={4}>
+          <Text color={dimColor}>
+            +{totalCount} tool đã dùng (Ctrl+o để xem)
+          </Text>
+        </Box>
+      )}
+      {isRunning && (
+        <Box paddingLeft={4}>
+          <Text color={color}><LoadingBar /></Text>
+        </Box>
+      )}
+    </Box>
+  );
+});
+
+// ─── Component chính ────────────────────────────────────────
 const ResponseBlock = ({
   content,
   reasoningContent,
@@ -96,15 +135,18 @@ const ResponseBlock = ({
   totalTokens,
   isThinkingExpanded,
   isStreaming = false,
+  isToolExpanded,
+  toolCalls,
 }: ResponseBlockProps) => {
   const hasReasoning = reasoningContent && reasoningContent.length > 0;
-
-  // Parse content thành các phần để tô màu tool call/result
-  const contentParts = splitContent(content);
+  const hasTools = toolCalls && toolCalls.length > 0;
+  const hasRunningTool = hasTools && toolCalls!.some(tc => tc.state === 'running');
+  const showFullTools = hasTools && (isToolExpanded || hasRunningTool);
+  const textContent = content?.trim();
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* ── Thinking toggle row ──────────────────────────────── */}
+      {/* ── Thinking toggle ───────────────────────────────── */}
       {hasReasoning && (
         <Box flexDirection="column">
           <Box flexDirection="row">
@@ -118,8 +160,6 @@ const ResponseBlock = ({
             <Text color={thinkingColor}> </Text>
             <Text dimColor>(ctrl+o để {isThinkingExpanded ? 'đóng' : 'mở'})</Text>
           </Box>
-
-          {/* ── Expanded thinking content ──────────────────────── */}
           {isThinkingExpanded && (
             <Box flexDirection="column" paddingLeft={2} marginTop={0}>
               {(reasoningContent || '').split('\n').map((line, i) => (
@@ -132,41 +172,56 @@ const ResponseBlock = ({
         </Box>
       )}
 
-      {/* ── Main response row ──────────────────────────────────── */}
-      <Box flexDirection="row">
-        <Text color="gray">●</Text>
-        <Text> </Text>
-        <Box flexDirection="column" flexGrow={1}>
-          <Box flexDirection="column">
-            {contentParts.map((part, i) => (
-              <Text
-                key={i}
-                color={getPartColor(part.type)}
-                bold={part.type === 'tool_call'}
-                wrap="wrap"
-              >
-                {part.text}
-              </Text>
-            ))}
+      {/* ── Full tool details (khi expand hoặc đang chạy) ─ */}
+      {showFullTools && toolCalls!.map((tc, idx) => (
+        <ToolRow
+          key={idx}
+          record={tc}
+          isLast={idx === toolCalls!.length - 1}
+          totalCount={toolCalls!.length}
+          showCount={false}
+        />
+      ))}
+
+      {/* ── Main text content ─────────────────────────────── */}
+      {textContent ? (
+        <Box flexDirection="row" marginTop={showFullTools ? 1 : 0}>
+          <Text color="gray">●</Text>
+          <Text> </Text>
+          <Box flexDirection="column" flexGrow={1}>
+            <Text wrap="wrap">{textContent}</Text>
           </Box>
-          {/* Token info footer — ẩn khi đang streaming */}
-          {!isStreaming && (completionTokens !== undefined || totalTokens !== undefined) && (
-            <Box flexDirection="row" justifyContent="flex-end" marginTop={0}>
-              {completionTokens !== undefined && (
-                <Text dimColor>
-                  {completionTokens} tk phản hồi
-                  {totalTokens !== undefined ? ' · ' : ''}
-                </Text>
-              )}
-              {totalTokens !== undefined && (
-                <Text dimColor>
-                  tổng {totalTokens} tk
-                </Text>
-              )}
-            </Box>
+        </Box>
+      ) : null}
+
+      {/* ── Compact tool summary (khi ko expand và ko running) */}
+      {hasTools && !showFullTools && (
+        <Box flexDirection="column" marginTop={textContent ? 1 : 0}>
+          {toolCalls!.map((tc, idx) => (
+            <ToolRow
+              key={idx}
+              record={tc}
+              isLast={idx === toolCalls!.length - 1}
+              totalCount={toolCalls!.length}
+              showCount={true}
+            />
+          ))}
+        </Box>
+      )}
+
+      {/* ── Token info footer ─────────────────────────────── */}
+      {!isStreaming && (completionTokens !== undefined || totalTokens !== undefined) && (
+        <Box flexDirection="row" justifyContent="flex-end" marginTop={0}>
+          {completionTokens !== undefined && (
+            <Text dimColor>
+              {completionTokens} tk phản hồi{totalTokens !== undefined ? ' · ' : ''}
+            </Text>
+          )}
+          {totalTokens !== undefined && (
+            <Text dimColor>tổng {totalTokens} tk</Text>
           )}
         </Box>
-      </Box>
+      )}
     </Box>
   );
 };

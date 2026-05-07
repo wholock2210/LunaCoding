@@ -8,6 +8,7 @@ import { filterCommands, isKnownCommand } from '../../services/commands.js';
 interface TerminalBottomProps {
   onSend: (input: string) => void;
   onCommand: (command: string) => void;
+  onCtrlO: () => void;
   isLoading: boolean;
   uiMode: UiMode;
   stableMode: boolean;
@@ -16,13 +17,13 @@ interface TerminalBottomProps {
 const TerminalBottom = ({
   onSend,
   onCommand,
+  onCtrlO,
   isLoading,
   uiMode,
   stableMode,
 }: TerminalBottomProps) => {
   const [inputValue, setInputValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
-
   // ── Lọc lệnh gợi ý dựa trên input hiện tại ──────────────────
   const suggestions = useMemo(() => {
     if (!inputValue.startsWith('/')) return [];
@@ -44,6 +45,13 @@ const TerminalBottom = ({
     },
     [],
   );
+
+  // ── Ctrl+O: toggle thinking & tool details ──────────────────
+  useInput((_input, key) => {
+    if (key.ctrl && _input === 'o') {
+      onCtrlO();
+    }
+  });
 
   // ── Tab: tự động hoàn thành lệnh đầu tiên ──────────────────
   useInput(

@@ -23,6 +23,7 @@ import type {
   ProviderType,
   ChatStreamChunk,
   ToolParseMode,
+  ToolCallRecord,
 } from '../services/types.js';
 
 const App = () => {
@@ -35,6 +36,7 @@ const App = () => {
   messagesRef.current = messages;
   const [isLoading, setIsLoading] = useState(false);
   const [expandedThinkingIndices, setExpandedThinkingIndices] = useState<Set<number>>(new Set());
+  const [expandedToolIndices, setExpandedToolIndices] = useState<Set<number>>(new Set());
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingPhase, setStreamingPhase] = useState<'thinking' | 'responding' | null>(null);
 
@@ -63,6 +65,8 @@ const App = () => {
   stableModeRef.current = stableMode;
   const streamingPhaseRef = useRef(streamingPhase);
   streamingPhaseRef.current = streamingPhase;
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
 
   // Buffer tích luỹ stream chunk khi stable mode đang bật.
   // Khi tắt stable mode, flush buffer này vào state để UI cập nhật.
@@ -82,6 +86,8 @@ const App = () => {
       // Cập nhật phase
       if (buf.finished) {
         setStreamingPhase(null);
+        setIsStreaming(false);
+        setIsLoading(false);
       } else if (buf.responseText.length > 0) {
         setStreamingPhase('responding');
       } else if (buf.thinkingText.length > 0) {
@@ -106,51 +112,43 @@ const App = () => {
   }, []);
 
   // ============================================================
-  // Keyboard shortcut: Ctrl+O to toggle all reasoning blocks
+  // Keyboard shortcut: Ctrl+I to toggle stable mode
   // ============================================================
   useInput((input, key) => {
     if (key.ctrl && input === 'i') {
       setStableMode((prev) => !prev);
-      return;
-    }
-
-    if (key.ctrl && input === 'o') {
-      // Khi đang streaming, Ctrl+O toggle ẩn/hiện thinking của message đang stream
-      if (isStreaming) {
-        const streamingIdx = messages.length - 1; // message cuối cùng là message đang stream
-        setExpandedThinkingIndices(prev => {
-          const next = new Set(prev);
-          if (next.has(streamingIdx)) {
-            next.delete(streamingIdx);
-          } else {
-            next.add(streamingIdx);
-          }
-          return next;
-        });
-        return;
-      }
-
-      const reasoningIndices: number[] = [];
-      messages.forEach((msg, idx) => {
-        if (msg.role === 'assistant' && msg.reasoningContent) {
-          reasoningIndices.push(idx);
-        }
-      });
-
-      if (reasoningIndices.length > 0) {
-        setExpandedThinkingIndices(prev => {
-          const allExpanded = reasoningIndices.every(idx => prev.has(idx));
-          const next = new Set(prev);
-          if (allExpanded) {
-            reasoningIndices.forEach(idx => next.delete(idx));
-          } else {
-            reasoningIndices.forEach(idx => next.add(idx));
-          }
-          return next;
-        });
-      }
     }
   });
+
+  // ============================================================
+  // Ctrl+O handler: toggle thinking & tool details
+  // ============================================================
+  const handleCtrlO = useCallback(() => {
+    // 1. Thu thập tất cả index có thể expand (có reasoning hoặc tool)
+    const expandableIndices = new Set<number>();
+    messages.forEach((msg, idx) => {
+      if (msg.role === 'assistant') {
+        if (msg.reasoningContent) expandableIndices.add(idx);
+        if (msg.toolCalls && msg.toolCalls.length > 0) expandableIndices.add(idx);
+      }
+    });
+
+    if (expandableIndices.size === 0) return;
+
+    // 2. Kiểm tra: có BẤT KỲ index nào đang expanded không?
+    const hasAnyExpanded = [...expandableIndices].some(idx =>
+      expandedThinkingIndices.has(idx) || expandedToolIndices.has(idx)
+    );
+
+    // 3. Nếu đang expanded → thu gọn toàn bộ; ngược lại → mở toàn bộ
+    if (hasAnyExpanded) {
+      setExpandedThinkingIndices(new Set());
+      setExpandedToolIndices(new Set());
+    } else {
+      setExpandedThinkingIndices(new Set(expandableIndices));
+      setExpandedToolIndices(new Set(expandableIndices));
+    }
+  }, [messages, expandedThinkingIndices, expandedToolIndices]);
 
   // ============================================================
   // Command handler — parse các lệnh /
@@ -301,7 +299,8 @@ const App = () => {
       completionTokens: undefined,
       totalTokens: undefined,
       timestamp: new Date(),
-    } as any;
+      toolCalls: [],
+    };
 
     setMessages((prev) => [...prev, userMessage, placeholder]);
     if (!stableModeRef.current) {
@@ -369,13 +368,17 @@ const App = () => {
             setStreamingPhase(null);
           }
         } else if (chunk.type === 'tool_call') {
-          // Thêm tool_call block vào content của message hiện tại
           const tc = chunk.toolCall;
           if (tc) {
-            const toolBlock = `\n🔧 **Gọi tool: \`${tc.name}\`**\n\`\`\`json\n${JSON.stringify(tc.arguments, null, 2)}\n\`\`\`\n`;
+            const newRecord: ToolCallRecord = {
+              name: tc.name,
+              arguments: tc.arguments,
+              state: 'running',
+            };
+            const prevCalls = currentMessages[placeholderIdx]?.toolCalls ?? [];
             currentMessages[placeholderIdx] = {
               ...currentMessages[placeholderIdx]!,
-              content: (currentMessages[placeholderIdx]?.content ?? '') + toolBlock,
+              toolCalls: [...prevCalls, newRecord],
             };
             if (!stableModeRef.current) {
               setMessages([...currentMessages]);
@@ -384,11 +387,27 @@ const App = () => {
         } else if (chunk.type === 'tool_result') {
           const tr = chunk.toolResult;
           if (tr) {
-            const resultIcon = tr.isError ? '❌' : '✅';
-            const resultBlock = `\n${resultIcon} **Kết quả tool:**\n\`\`\`\n${tr.content.slice(0, 2000)}\n\`\`\`\n`;
+            const prevCalls = currentMessages[placeholderIdx]?.toolCalls ?? [];
+            // Tìm tool đang chạy cuối cùng để ghi nhận kết quả
+            const reversed = [...prevCalls].reverse();
+            const runningIdxInReversed = reversed.findIndex(c => c.state === 'running');
+            let updatedCalls = prevCalls;
+            if (runningIdxInReversed !== -1) {
+              const runningIdx = prevCalls.length - 1 - runningIdxInReversed;
+              const newCalls = [...prevCalls];
+              const existing = newCalls[runningIdx]!;
+              newCalls[runningIdx] = {
+                name: existing.name,
+                arguments: existing.arguments,
+                resultContent: tr.content.slice(0, 2000),
+                isError: tr.isError,
+                state: tr.isError ? 'error' : 'success',
+              };
+              updatedCalls = newCalls;
+            }
             currentMessages[placeholderIdx] = {
               ...currentMessages[placeholderIdx]!,
-              content: (currentMessages[placeholderIdx]?.content ?? '') + resultBlock,
+              toolCalls: updatedCalls,
             };
             if (!stableModeRef.current) {
               setMessages([...currentMessages]);
@@ -459,9 +478,11 @@ const App = () => {
           if (next[placeholderIdx]) {
             // Giữ nguyên content nếu đã được set bởi error hoặc response
             const existingContent = currentMessages[placeholderIdx]?.content ?? '';
+            const existingToolCalls = currentMessages[placeholderIdx]?.toolCalls;
             next[placeholderIdx] = {
               ...next[placeholderIdx],
               content: existingContent || next[placeholderIdx]?.content || '',
+              toolCalls: existingToolCalls,
               reasoningTokens: finalUsage?.reasoningTokens,
               completionTokens: finalUsage
                 ? finalUsage.completionTokens - (finalUsage.reasoningTokens ?? 0)
@@ -652,6 +673,7 @@ const App = () => {
           isStreaming,
           streamingPhase,
           expandedThinkingIndices,
+          expandedToolIndices,
         }}
         providerListProps={{
           providers,
@@ -686,6 +708,7 @@ const App = () => {
       <TerminalBottom
         onSend={handleSendMessage}
         onCommand={handleCommand}
+        onCtrlO={handleCtrlO}
         isLoading={isLoading}
         uiMode={uiMode}
         stableMode={stableMode}

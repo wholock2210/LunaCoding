@@ -1,3 +1,15 @@
+/** Trạng thái của một tool call */
+export type ToolCallState = 'running' | 'success' | 'error';
+
+/** Bản ghi một lần gọi tool */
+export interface ToolCallRecord {
+  name: string;
+  arguments: Record<string, unknown>;
+  resultContent?: string;
+  isError?: boolean;
+  state: ToolCallState;
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -6,6 +18,8 @@ export interface Message {
   reasoningTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  /** Danh sách tool đã gọi trong message này */
+  toolCalls?: ToolCallRecord[];
 }
 
 // ============================================================
