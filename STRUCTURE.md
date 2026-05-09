@@ -50,8 +50,8 @@ LunaCoding/
     └── ui/                    # Tầng giao diện (React components)
         ├── app.tsx            # Component gốc: state management + UI mode routing
         │                       #   - Stable mode (Ctrl+I): ổn định IME tiếng Việt khi streaming
-        │                       #   - expandedThinkingIndices + Ctrl+O: toggle khối suy nghĩ
-        │                       #   - Xử lý chunk error, lệnh /logs, /tool-mode
+        │                       #   - detailMode (Ctrl+O hoặc /expand): toggle chế độ Tóm tắt ↔ Chi tiết
+        │                       #   - Xử lý chunk error, lệnh /logs, /tool-mode, /expand
         │
         └── components/        # Các component con
             ├── TerminalTop.tsx        # Header: ASCII art, thông tin hệ thống, đồng hồ
@@ -59,9 +59,10 @@ LunaCoding/
             │                           #   - ChatView: hiển thị messages + ResponseBlock + LoadingIndicator
             │                           #   - Khi loading: hiển thị "đang suy nghĩ..." + gợi ý Ctrl+O
             ├── TerminalBottom.tsx     # Input bar: nhập tin nhắn, gửi, gợi ý lệnh / (autocomplete + Tab)
-            ├── ResponseBlock.tsx      # Hiển thị một phản hồi assistant:
-            │                           #   - Thinking toggle (▶/▼) + reasoning content (màu xám)
-            │                           #   - Token count footer (tk phản hồi · tổng tk)
+            ├── ResponseBlock.tsx      # Hiển thị một phản hồi assistant (VIẾT LẠI):
+            │                           #   - 2 chế độ: Tóm tắt (mặc định) & Chi tiết (detailMode)
+            │                           #   - ThinkingSummary, ThinkingPanel, CompactToolRow, DetailToolRow
+            │                           #   - StreamDot animation, token count footer, hint Ctrl+O
             ├── LoadingIndicator.tsx   # Indicator loading: spinner + text tùy chỉnh + hiệu ứng sóng màu
             ├── ProviderMenu.tsx       # Màn hình danh sách provider đã cấu hình
             ├── ProviderTypeSelect.tsx # Màn hình chọn loại provider để thêm mới
@@ -83,8 +84,8 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 │  └──────────┘ └──────────┘ └──────────────┘ └───────────────┘  │
 │                        ↕                                          │
 │                App (state hub + router)                           │
-│    - messages, isLoading, expandedThinkingIndices                 │
-│    - Ctrl+O: toggle all thinking blocks                           │
+│    - messages, isLoading, detailMode (boolean)                    │
+│    - Ctrl+O hoặc /expand: toggle chế độ Tóm tắt ↔ Chi tiết       │
 ├──────────────────────────────────────────────────────────────────┤
 │                       Service Layer                               │
 │  ┌──────────┐ ┌──────────┐ ┌────────────┐ ┌──────────────────┐  │
@@ -245,29 +246,30 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   - `isLoading: boolean` — trạng thái đang chờ AI trả lời
   - `isStreaming: boolean` — trạng thái đang streaming response
   - `streamingPhase: 'thinking' | 'responding' | null` — giai đoạn streaming hiện tại
-  - `expandedThinkingIndices: Set<number>` — index của các message đang mở thinking
+  - `detailMode: boolean` — chế độ hiển thị: `false` = Tóm tắt (mặc định), `true` = Chi tiết
   - `uiMode: UiMode` — chế độ giao diện hiện tại
   - `stableMode: boolean` — chế độ ổn định IME tiếng Việt khi streaming
   - Các state cho provider/model management
 - **Keyboard shortcut:**
   - `Ctrl+I`: toggle Stable Mode — khi bật, stream buffer thay đổi vào `streamBufferRef` thay vì gọi `setMessages()`, giúp ổn định con trỏ IME tiếng Việt (fcitx-bamboo). Khi tắt, `useEffect` flush buffer vào state.
-  - `Ctrl+O`: toggle tất cả khối suy nghĩ (mở tất cả nếu có block đang đóng, đóng tất cả nếu tất cả đang mở); khi đang streaming, toggle thinking của message đang stream
+  - `Ctrl+O`: toggle `detailMode` (Tóm tắt ↔ Chi tiết) — ảnh hưởng đến toàn bộ message trong lịch sử chat
 - **Xử lý lệnh slash:**
   - `/logs` → hiển thị 50 dòng log cuối
   - `/logs all` → hiển thị toàn bộ log
   - `/logs clear` → xóa log
   - `/tool-mode` hoặc `/tm` → xem chế độ gọi tool hiện tại
   - `/tool-mode auto|native|xml` hoặc `/tm auto|native|xml` → đổi chế độ gọi tool
+  - `/expand` hoặc `/e` → toggle `detailMode` (tương tự Ctrl+O), kèm thông báo xác nhận
 - **Xử lý chunk error:** hiển thị thông báo lỗi thân thiện với prefix `● LunaCoding:` kèm gợi ý `💡 Dùng \`/logs\` để xem chi tiết lỗi.`
 - **Luồng xử lý gửi tin nhắn (streaming):**
   1. Tạo `userMessage` từ input
   2. Tạo placeholder `assistantMessage` (content rỗng) → append cùng userMessage
-  3. `setIsStreaming(true)`, `setStreamingPhase(null)`, mặc định mở thinking
+  3. `setIsStreaming(true)`, `setStreamingPhase(null)`
   4. `for await (chunk)` từ `sendChatMessageStream()`:
      - reasoning chunk → `setStreamingPhase('thinking')`, cập nhật `reasoningContent`
      - content chunk → `setStreamingPhase('responding')`, cập nhật `content`
-     - tool_call chunk → thêm block `🔧 **Gọi tool:**` vào content
-     - tool_result chunk → thêm block `✅/❌ **Kết quả tool:**` vào content
+     - tool_call chunk → thêm bản ghi vào `toolCalls` của assistantMessage
+     - tool_result chunk → cập nhật state và resultContent của tool call tương ứng
      - error chunk → hiển thị lỗi, kết thúc stream
      - done chunk → `setStreamingPhase(null)`, cập nhật token usage
   5. Nếu không có phản hồi và không có lỗi → fallback message
@@ -301,26 +303,33 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   | `provider-add-form` | `ProviderAddForm` | Form nhập thông tin provider mới |
   | `model-list` | `ModelMenu` / `ModelAddInput` | Danh sách model hoặc form thêm model |
 - **ChatView (internal component):**
-  - Nhận `messages`, `isLoading`, `isStreaming`, `streamingPhase`, `expandedThinkingIndices`
+  - Nhận `messages`, `isLoading`, `isStreaming`, `streamingPhase`, `detailMode`
   - Trạng thái rỗng: hiển thị "Chưa có tin nhắn nào..."
   - User message: `❯` prefix + nội dung trắng
-  - Assistant message: render qua `<ResponseBlock>` với `isThinkingExpanded` và `isStreaming` (true cho message cuối cùng đang stream)
+  - Assistant message: render qua `<ResponseBlock>` với `detailMode` và `isStreaming` (true cho message cuối cùng đang stream)
   - **LoadingIndicator** đặt ở dưới cùng khung chat, thay đổi theo `streamingPhase`:
     - `'thinking'` → `<LoadingIndicator text="thinking..." />`
     - `'responding'` → `<LoadingIndicator text="responding..." />`
     - Không streaming nhưng `isLoading` → `<LoadingIndicator text="đang suy nghĩ..." />`
 
-### `src/ui/components/ResponseBlock.tsx` – Hiển thị phản hồi assistant
-- Nhận props: `content`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?`, `isThinkingExpanded`, `isStreaming?`
-- **Thinking toggle row:** Khi có `reasoningContent`, hiển thị:
-  - `▶ Suy nghĩ` hoặc `▼ Suy nghĩ` + `(đang cập nhật...)` khi streaming, hoặc `(N tk)` khi đã có token count
-- **Expanded thinking content:** Khi `isThinkingExpanded`, hiển thị toàn bộ `reasoningContent` với màu xám `#666666`, prefix `│`
-- **Split content thành các phần:** Hàm `splitContent()` parse nội dung thành text thường và các block tool call/result:
-  - `🔧 **Gọi tool:**` → màu cyan, bold
-  - `✅ **Kết quả tool:**` → màu xanh lá
-  - `❌ **Kết quả tool:**` → màu đỏ
-  - Có guard clause `if (!content) return []` chống crash khi content undefined
-- **Main response:** `●` xám + nội dung wrap với màu sắc phân biệt tool blocks
+### `src/ui/components/ResponseBlock.tsx` – Hiển thị phản hồi assistant (VIẾT LẠI)
+- Nhận props: `content`, `reasoningContent?`, `reasoningTokens?`, `completionTokens?`, `totalTokens?`, `detailMode`, `isStreaming?`, `toolCalls?: ToolCallRecord[]`
+- **2 chế độ hiển thị dựa trên `detailMode`:**
+  - **Tóm tắt (`detailMode=false`):**
+    - Thinking: `ThinkingSummary` — `🧠 Đã suy nghĩ (N tk)` hoặc `🧠 Đang suy nghĩ...`
+    - Tool calls: `CompactToolRow` — mỗi tool 1 dòng gọn: `✓ Đọc file thành công (main.ts)`
+    - Hint: `└ Ctrl+O để xem chi tiết` khi có thinking hoặc tool
+  - **Chi tiết (`detailMode=true`):**
+    - Thinking: `ThinkingPanel` — `▼ Suy nghĩ` + toàn bộ nội dung, prefix `│`
+    - Tool calls: `DetailToolRow` — tên, arguments (JSON), result content, trạng thái
+- **Sub-components:**
+  - `ThinkingSummary` — Dòng tóm tắt thinking
+  - `ThinkingPanel` — Panel chi tiết thinking với nội dung đầy đủ
+  - `CompactToolRow` — Tool row gọn (1 dòng + tên file nếu có)
+  - `DetailToolRow` — Tool row chi tiết (args + result)
+  - `StreamDot` — Animation "..." cho tool đang chạy
+- **Helpers:** `getStateColor()`, `getStateIcon()`, `getToolDisplayName()`, `getFileName()`, `formatArgs()`
+- **Main response:** `●` xám + nội dung wrap
 - **Token info footer:** `{completionTokens} tk phản hồi · tổng {totalTokens} tk` (dimColor, canh phải) — ẩn khi đang streaming
 
 ### `src/ui/components/LoadingIndicator.tsx` – Loading Indicator
@@ -439,7 +448,7 @@ TerminalBottom re-render ← isLoading = false
 | Phím | Chế độ | Chức năng |
 |------|--------|-----------|
 | `Ctrl+I` | Chat | Toggle Stable Mode — ổn định IME tiếng Việt khi streaming, buffer thay đổi thay vì re-render liên tục |
-| `Ctrl+O` | Chat | Toggle tất cả khối suy nghĩ (reasoning) của assistant; khi đang streaming, toggle thinking của message đang stream |
+| `Ctrl+O` | Chat | Toggle chế độ hiển thị Tóm tắt ↔ Chi tiết (thinking + tool calls) — ảnh hưởng đến toàn bộ lịch sử chat |
 | `Tab` | Chat (gợi ý lệnh) | Tự động hoàn thành lệnh slash đầu tiên trong danh sách gợi ý |
 | `Esc` | Provider/Model menu | Quay lại màn hình trước |
 | `Enter` | Chat | Gửi tin nhắn |

@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
-import TextInput from 'ink-text-input';
+import TextInput from './TerminalTextInput.js';
 import { useInput } from 'ink';
 import type { UiMode } from '../../services/types.js';
 import { filterCommands, isKnownCommand } from '../../services/commands.js';
@@ -8,7 +8,6 @@ import { filterCommands, isKnownCommand } from '../../services/commands.js';
 interface TerminalBottomProps {
   onSend: (input: string) => void;
   onCommand: (command: string) => void;
-  onCtrlO: () => void;
   isLoading: boolean;
   uiMode: UiMode;
   stableMode: boolean;
@@ -17,7 +16,6 @@ interface TerminalBottomProps {
 const TerminalBottom = ({
   onSend,
   onCommand,
-  onCtrlO,
   isLoading,
   uiMode,
   stableMode,
@@ -45,13 +43,6 @@ const TerminalBottom = ({
     },
     [],
   );
-
-  // ── Ctrl+O: toggle thinking & tool details ──────────────────
-  useInput((_input, key) => {
-    if (key.ctrl && _input === 'o') {
-      onCtrlO();
-    }
-  });
 
   // ── Tab: tự động hoàn thành lệnh đầu tiên ──────────────────
   useInput(

@@ -35,8 +35,8 @@ const App = () => {
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const [isLoading, setIsLoading] = useState(false);
-  const [expandedThinkingIndices, setExpandedThinkingIndices] = useState<Set<number>>(new Set());
-  const [expandedToolIndices, setExpandedToolIndices] = useState<Set<number>>(new Set());
+  // detailMode: false = Tóm tắt (ẩn thinking/tool), true = Chi tiết (hiển thị đầy đủ)
+  const [detailMode, setDetailMode] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingPhase, setStreamingPhase] = useState<'thinking' | 'responding' | null>(null);
 
@@ -113,42 +113,19 @@ const App = () => {
 
   // ============================================================
   // Keyboard shortcut: Ctrl+I to toggle stable mode
+  // Ctrl+O: toggle chế độ Tóm tắt / Chi tiết
   // ============================================================
   useInput((input, key) => {
     if (key.ctrl && input === 'i') {
       setStableMode((prev) => !prev);
+      return;
+    }
+
+    if (key.ctrl && input === 'o') {
+      setDetailMode(prev => !prev);
+      return;
     }
   });
-
-  // ============================================================
-  // Ctrl+O handler: toggle thinking & tool details
-  // ============================================================
-  const handleCtrlO = useCallback(() => {
-    // 1. Thu thập tất cả index có thể expand (có reasoning hoặc tool)
-    const expandableIndices = new Set<number>();
-    messages.forEach((msg, idx) => {
-      if (msg.role === 'assistant') {
-        if (msg.reasoningContent) expandableIndices.add(idx);
-        if (msg.toolCalls && msg.toolCalls.length > 0) expandableIndices.add(idx);
-      }
-    });
-
-    if (expandableIndices.size === 0) return;
-
-    // 2. Kiểm tra: có BẤT KỲ index nào đang expanded không?
-    const hasAnyExpanded = [...expandableIndices].some(idx =>
-      expandedThinkingIndices.has(idx) || expandedToolIndices.has(idx)
-    );
-
-    // 3. Nếu đang expanded → thu gọn toàn bộ; ngược lại → mở toàn bộ
-    if (hasAnyExpanded) {
-      setExpandedThinkingIndices(new Set());
-      setExpandedToolIndices(new Set());
-    } else {
-      setExpandedThinkingIndices(new Set(expandableIndices));
-      setExpandedToolIndices(new Set(expandableIndices));
-    }
-  }, [messages, expandedThinkingIndices, expandedToolIndices]);
 
   // ============================================================
   // Command handler — parse các lệnh /
@@ -254,6 +231,18 @@ const App = () => {
       return;
     }
 
+    // ── /expand — toggle chế độ Tóm tắt / Chi tiết ────────────
+    if (normalized === '/expand' || normalized === '/e') {
+      setDetailMode(prev => !prev);
+      const msg: Message = {
+        role: 'assistant',
+        content: detailMode ? '📁 Đã chuyển sang chế độ Tóm tắt.' : '📂 Đã chuyển sang chế độ Chi tiết.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, msg]);
+      return;
+    }
+
     if (normalized === '/help' || normalized === '/h') {
       const helpMsg: Message = {
         role: 'assistant',
@@ -263,8 +252,10 @@ const App = () => {
           '  /model     — Quản lý model của provider hiện tại\n' +
           '  /tool-mode — Xem/đổi chế độ gọi tool (auto/native/xml)\n' +
           '  /logs      — Xem log hệ thống (/logs, /logs all, /logs clear)\n' +
+          '  /expand    — Chuyển chế độ Tóm tắt / Chi tiết (alias: /e)\n' +
           '  /help      — Hiển thị trợ giúp này\n' +
-          '\n💡 Nhập tin nhắn thông thường để trò chuyện với AI.',
+          '\n💡 Nhập tin nhắn thông thường để trò chuyện với AI.\n' +
+          '⌨️  Phím tắt: Ctrl+O (toggle Tóm tắt/Chi tiết), Ctrl+I (stable mode).',
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, helpMsg]);
@@ -307,12 +298,6 @@ const App = () => {
       setIsLoading(true);
       setIsStreaming(true);
       setStreamingPhase(null);
-      // Mặc định hiển thị thinking khi streaming
-      setExpandedThinkingIndices(prev => {
-        const next = new Set(prev);
-        next.add(messagesRef.current.length + 1); // index của placeholder
-        return next;
-      });
     }
 
     const allMessages = [...messagesRef.current, userMessage];
@@ -672,8 +657,7 @@ const App = () => {
           isLoading,
           isStreaming,
           streamingPhase,
-          expandedThinkingIndices,
-          expandedToolIndices,
+          detailMode,
         }}
         providerListProps={{
           providers,
@@ -708,7 +692,6 @@ const App = () => {
       <TerminalBottom
         onSend={handleSendMessage}
         onCommand={handleCommand}
-        onCtrlO={handleCtrlO}
         isLoading={isLoading}
         uiMode={uiMode}
         stableMode={stableMode}

@@ -193,10 +193,13 @@ export class OpenAICompatibleProvider extends BaseProvider {
 
             if (delta) {
               // Reasoning content (DeepSeek, v.v.)
-              if ((delta as any).reasoning_content) {
-                reasoningBuffer += (delta as any).reasoning_content;
-                yield { type: 'reasoning', text: (delta as any).reasoning_content as string };
-                continue;
+              // Dùng != null thay vì falsy check để không bỏ lỡ chuỗi rỗng
+              const rc = (delta as any).reasoning_content;
+              if (rc != null && rc !== '') {
+                reasoningBuffer += rc;
+                yield { type: 'reasoning', text: rc as string };
+                // KHÔNG dùng continue — delta có thể chứa cả reasoning_content VÀ content
+                // trong cùng một chunk. Chỉ bỏ qua content nếu không có.
               }
 
               // Tool calls từ delta

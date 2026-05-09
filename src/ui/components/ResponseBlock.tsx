@@ -2,27 +2,37 @@ import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import type { ToolCallRecord, ToolCallState } from '../../services/types.js';
 
+// ============================================================================
+// ResponseBlock — Hiển thị phản hồi của AI với 2 chế độ:
+//   1. Tóm tắt (detailMode=false): Ẩn thinking, tool compact. Mặc định.
+//   2. Chi tiết (detailMode=true) : Hiển thị toàn bộ thinking, tool args/result.
+//      Toggle bằng Ctrl+O hoặc lệnh /expand.
+// ============================================================================
+
 interface ResponseBlockProps {
   content: string;
   reasoningContent?: string;
   reasoningTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
-  isThinkingExpanded: boolean;
-  isStreaming?: boolean;
-  isToolExpanded: boolean;
+  /** true = Chế độ Chi tiết (hiển thị đầy đủ), false = Tóm tắt (ẩn bớt) */
+  detailMode: boolean;
+  /** Chỉ true cho message cuối cùng đang streaming */
+  isStreaming: boolean;
   toolCalls?: ToolCallRecord[];
 }
 
-// ─── Màu sắc ────────────────────────────────────────────────
+// ─── Màu sắc ──────────────────────────────────────────────────────────────
 const thinkingColor = '#888888';
 const dimThinkingColor = '#666666';
 const dimColor = '#666666';
 const runningColor = '#00ffff';
 const successColor = '#00ff88';
 const errorColor = '#ff4444';
+const toolNameColor = '#aaaa00';
 
-// ─── Helpers ────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
 function getStateColor(state: ToolCallState): string {
   switch (state) {
     case 'running': return runningColor;
@@ -41,14 +51,8 @@ function getStateIcon(state: ToolCallState): string {
   }
 }
 
-function getStatusText(name: string, state: ToolCallState): string {
-  const display = name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  switch (state) {
-    case 'running': return `Đang ${display.toLowerCase()}...`;
-    case 'success': return `${display} thành công`;
-    case 'error': return `${display} thất bại`;
-    default: return display;
-  }
+function getToolDisplayName(name: string): string {
+  return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function getFileName(record: ToolCallRecord): string | undefined {
@@ -62,130 +66,215 @@ function getFileName(record: ToolCallRecord): string | undefined {
   return undefined;
 }
 
-// ─── Animation components ───────────────────────────────────
-const RunningDots = React.memo(() => {
+function formatArgs(args: Record<string, unknown> | undefined): string {
+  if (!args) return '';
+  try {
+    const str = JSON.stringify(args, null, 2);
+    return str.length > 500 ? str.slice(0, 497) + '...' : str;
+  } catch {
+    return String(args);
+  }
+}
+
+// ─── Streaming animation dots (nhẹ, chỉ thay đổi text content) ────────────
+const StreamDot = React.memo(() => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setFrame(f => f + 1), 300);
+    const id = setInterval(() => setFrame(f => (f + 1) % 4), 300);
     return () => clearInterval(id);
   }, []);
-  return <Text>{'.'.repeat((frame % 3) + 1)}</Text>;
+  const dots = ['.', '..', '...', ''];
+  return <Text>{dots[frame]}</Text>;
 });
 
-const LoadingBar = React.memo(() => {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setFrame(f => f + 1), 120);
-    return () => clearInterval(id);
-  }, []);
-  const barW = 8;
-  const filled = frame % (barW * 2);
-  const pos = filled < barW ? filled : barW * 2 - filled - 1;
-  const chars = Array.from({ length: barW }, (_, i) => i <= pos ? '▓' : '░');
-  return <Text>[{chars.join('')}]</Text>;
-});
-
-// ─── Tool row ───────────────────────────────────────────────
-const ToolRow = React.memo(({ record, isLast, totalCount, showCount }: {
+// ─── Tool row compact (chế độ Tóm tắt) ────────────────────────────────────
+const CompactToolRow = React.memo(({ record, isLast, totalCount }: {
   record: ToolCallRecord;
   isLast: boolean;
   totalCount: number;
-  showCount: boolean;
 }) => {
   const color = getStateColor(record.state);
   const icon = getStateIcon(record.state);
-  const status = getStatusText(record.name, record.state);
+  const displayName = getToolDisplayName(record.name);
   const fileName = getFileName(record);
-  const displayDetail = fileName
-    ? `${icon} ${record.name}(${fileName})`
-    : `${icon} ${record.name}`;
   const isRunning = record.state === 'running';
 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
-        <Text color={color}>● {status}</Text>
-        {isRunning && <RunningDots />}
+        <Text color={color}>{icon} </Text>
+        <Text color={color}>
+          {isRunning ? `Đang ${displayName.toLowerCase()}...` : `${displayName} thành công`}
+        </Text>
+        {fileName && (
+          <Text color={dimColor}> ({fileName})</Text>
+        )}
+        {isRunning && <StreamDot />}
       </Box>
-      <Box flexDirection="row" paddingLeft={2}>
-        <Text color={color}>╰ {displayDetail}</Text>
-      </Box>
-      {showCount && isLast && (
-        <Box flexDirection="row" paddingLeft={4}>
-          <Text color={dimColor}>
-            +{totalCount} tool đã dùng (Ctrl+o để xem)
-          </Text>
-        </Box>
+      {isLast && totalCount > 1 && (
+        <Text color={dimColor}>
+          {'  '}+{totalCount - 1} tool khác
+        </Text>
       )}
-      {isRunning && (
-        <Box paddingLeft={4}>
-          <Text color={color}><LoadingBar /></Text>
+    </Box>
+  );
+});
+
+// ─── Tool row chi tiết (chế độ Chi tiết) ──────────────────────────────────
+const DetailToolRow = React.memo(({ record }: { record: ToolCallRecord }) => {
+  const color = getStateColor(record.state);
+  const icon = getStateIcon(record.state);
+  const displayName = getToolDisplayName(record.name);
+  const isRunning = record.state === 'running';
+
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {/* Header */}
+      <Box flexDirection="row">
+        <Text color={color} bold>
+          {icon} Tool: {displayName}
+        </Text>
+        {isRunning && <StreamDot />}
+      </Box>
+
+      {/* Arguments */}
+      <Box flexDirection="column" paddingLeft={2}>
+        <Text color={toolNameColor}>Arguments:</Text>
+        <Text color={dimColor}>
+          {formatArgs(record.arguments)}
+        </Text>
+      </Box>
+
+      {/* Result (nếu có) */}
+      {record.state !== 'running' && (
+        <Box flexDirection="column" paddingLeft={2}>
+          <Text color={record.state === 'error' ? errorColor : successColor}>
+            Result ({record.state}):
+          </Text>
+          {record.resultContent && (
+            <Text color={dimThinkingColor} wrap="wrap">
+              {record.resultContent.length > 1000
+                ? record.resultContent.slice(0, 997) + '...'
+                : record.resultContent}
+            </Text>
+          )}
+          {record.isError && (
+            <Text color={errorColor}>⚠ Lỗi khi thực thi tool</Text>
+          )}
         </Box>
       )}
     </Box>
   );
 });
 
-// ─── Component chính ────────────────────────────────────────
+// ─── Thinking panel (chế độ Chi tiết) ─────────────────────────────────────
+const ThinkingPanel = React.memo(({
+  reasoningContent,
+  reasoningTokens,
+  isStreaming,
+}: {
+  reasoningContent?: string;
+  reasoningTokens?: number;
+  isStreaming: boolean;
+}) => {
+  if (!reasoningContent || reasoningContent.length === 0) return null;
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Text color={thinkingColor}>
+          ▼ Suy nghĩ
+          {isStreaming && reasoningTokens === undefined ? ' (đang cập nhật...)' : ''}
+        </Text>
+        {!isStreaming && reasoningTokens !== undefined && (
+          <Text color={thinkingColor}> ({reasoningTokens} tk)</Text>
+        )}
+      </Box>
+      <Box flexDirection="column" paddingLeft={2} marginTop={0}>
+        {reasoningContent.split('\n').map((line, i) => (
+          <Text key={i} color={dimThinkingColor} wrap="wrap">
+            │ {line}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
+});
+
+// ─── Thinking summary (chế độ Tóm tắt) ────────────────────────────────────
+const ThinkingSummary = React.memo(({
+  reasoningTokens,
+  isStreaming,
+}: {
+  reasoningTokens?: number;
+  isStreaming: boolean;
+}) => {
+  return (
+    <Box flexDirection="row">
+      <Text color={thinkingColor}>🧠 </Text>
+      {isStreaming && reasoningTokens === undefined ? (
+        <Text color={thinkingColor}>Đang suy nghĩ...</Text>
+      ) : (
+        <Text color={thinkingColor}>
+          Đã suy nghĩ{reasoningTokens !== undefined ? ` (${reasoningTokens} tk)` : ''}
+        </Text>
+      )}
+    </Box>
+  );
+});
+
+// ─── Component chính ──────────────────────────────────────────────────────
 const ResponseBlock = ({
   content,
   reasoningContent,
   reasoningTokens,
   completionTokens,
   totalTokens,
-  isThinkingExpanded,
-  isStreaming = false,
-  isToolExpanded,
+  detailMode,
+  isStreaming,
   toolCalls,
 }: ResponseBlockProps) => {
   const hasReasoning = reasoningContent && reasoningContent.length > 0;
   const hasTools = toolCalls && toolCalls.length > 0;
   const hasRunningTool = hasTools && toolCalls!.some(tc => tc.state === 'running');
-  const showFullTools = hasTools && (isToolExpanded || hasRunningTool);
   const textContent = content?.trim();
+
+  // Khi streaming và chưa có reasoning → vẫn hiển thị "đang suy nghĩ"
+  const showThinkingSummary = isStreaming || hasReasoning;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* ── Thinking toggle ───────────────────────────────── */}
-      {hasReasoning && (
-        <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text color={thinkingColor}>
-              {isThinkingExpanded ? '▼' : '▶'} Suy nghĩ
-              {isStreaming && reasoningTokens === undefined ? ' (đang cập nhật...)' : ''}
-            </Text>
-            {!isStreaming && reasoningTokens !== undefined && (
-              <Text color={thinkingColor}> ({reasoningTokens} tk)</Text>
-            )}
-            <Text color={thinkingColor}> </Text>
-            <Text dimColor>(ctrl+o để {isThinkingExpanded ? 'đóng' : 'mở'})</Text>
-          </Box>
-          {isThinkingExpanded && (
-            <Box flexDirection="column" paddingLeft={2} marginTop={0}>
-              {(reasoningContent || '').split('\n').map((line, i) => (
-                <Text key={i} color={dimThinkingColor} wrap="wrap">
-                  │ {line}
-                </Text>
-              ))}
-            </Box>
-          )}
-        </Box>
-      )}
+      {/* ── Thinking: Chi tiết hoặc Tóm tắt ──────────────────────── */}
+      {detailMode && hasReasoning ? (
+        <ThinkingPanel
+          reasoningContent={reasoningContent}
+          reasoningTokens={reasoningTokens}
+          isStreaming={isStreaming}
+        />
+      ) : showThinkingSummary ? (
+        <ThinkingSummary
+          reasoningTokens={reasoningTokens}
+          isStreaming={isStreaming}
+        />
+      ) : null}
 
-      {/* ── Full tool details (khi expand hoặc đang chạy) ─ */}
-      {showFullTools && toolCalls!.map((tc, idx) => (
-        <ToolRow
+      {/* ── Tools: Chi tiết hoặc Compact ─────────────────────────── */}
+      {hasTools && detailMode && toolCalls!.map((tc, idx) => (
+        <DetailToolRow key={idx} record={tc} />
+      ))}
+
+      {hasTools && !detailMode && toolCalls!.map((tc, idx) => (
+        <CompactToolRow
           key={idx}
           record={tc}
           isLast={idx === toolCalls!.length - 1}
           totalCount={toolCalls!.length}
-          showCount={false}
         />
       ))}
 
-      {/* ── Main text content ─────────────────────────────── */}
+      {/* ── Main text content ─────────────────────────────────────── */}
       {textContent ? (
-        <Box flexDirection="row" marginTop={showFullTools ? 1 : 0}>
+        <Box flexDirection="row" marginTop={hasTools ? 1 : 0}>
           <Text color="gray">●</Text>
           <Text> </Text>
           <Box flexDirection="column" flexGrow={1}>
@@ -194,22 +283,7 @@ const ResponseBlock = ({
         </Box>
       ) : null}
 
-      {/* ── Compact tool summary (khi ko expand và ko running) */}
-      {hasTools && !showFullTools && (
-        <Box flexDirection="column" marginTop={textContent ? 1 : 0}>
-          {toolCalls!.map((tc, idx) => (
-            <ToolRow
-              key={idx}
-              record={tc}
-              isLast={idx === toolCalls!.length - 1}
-              totalCount={toolCalls!.length}
-              showCount={true}
-            />
-          ))}
-        </Box>
-      )}
-
-      {/* ── Token info footer ─────────────────────────────── */}
+      {/* ── Token info footer ─────────────────────────────────────── */}
       {!isStreaming && (completionTokens !== undefined || totalTokens !== undefined) && (
         <Box flexDirection="row" justifyContent="flex-end" marginTop={0}>
           {completionTokens !== undefined && (
@@ -220,6 +294,13 @@ const ResponseBlock = ({
           {totalTokens !== undefined && (
             <Text dimColor>tổng {totalTokens} tk</Text>
           )}
+        </Box>
+      )}
+
+      {/* ── Hint: Ctrl+O để xem chi tiết (chỉ hiện ở chế độ Tóm tắt) ─ */}
+      {!detailMode && (hasReasoning || hasTools) && !isStreaming && (
+        <Box flexDirection="row" marginTop={0}>
+          <Text dimColor>  └ Ctrl+O để xem chi tiết</Text>
         </Box>
       )}
     </Box>

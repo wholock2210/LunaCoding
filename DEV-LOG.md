@@ -432,3 +432,67 @@ src/
 | Phím | Chức năng |
 |------|-----------|
 | `Ctrl+I` | Toggle Stable Mode — ổn định IME tiếng Việt khi streaming |
+
+## [8] 2026-05-09 — Thiết kế lại UI: Chế độ Tóm tắt / Chi tiết
+**Trạng thái:** ✅ Hoàn thành
+
+### Tổng quan
+Thiết kế lại toàn bộ hệ thống hiển thị thinking và tool calls. Thay thế cơ chế `expandedThinkingIndices`/`expandedToolIndices` phức tạp bằng **1 state boolean `detailMode`** duy nhất. Người dùng có 2 chế độ view:
+- **Tóm tắt (mặc định):** Ẩn nội dung thinking, tool hiển thị compact 1 dòng
+- **Chi tiết:** Hiển thị toàn bộ suy nghĩ và tool args/result
+- **Ctrl+O** hoặc lệnh **`/expand`** toggle giữa 2 chế độ
+
+### Các thay đổi
+
+#### 1. `src/ui/app.tsx`
+- Xóa state `expandedThinkingIndices`, `expandedToolIndices` và các Ref liên quan
+- Xóa `useEffect` auto-expand
+- Thêm `const [detailMode, setDetailMode] = useState(false)`
+- `Ctrl+O` handler: `setDetailMode(prev => !prev)`
+- Lệnh `/expand`: toggle `detailMode`, hiển thị thông báo chế độ mới
+- Truyền `detailMode` thay vì `expandedThinkingIndices`/`expandedToolIndices` vào `chatProps`
+- Xóa logic tự động mở thinking khi bắt đầu stream (`setExpandedThinkingIndices`)
+
+#### 2. `src/ui/components/TerminalMid.tsx`
+- `ChatModeProps`: bỏ `expandedThinkingIndices: Set<number>`, `expandedToolIndices: Set<number>`, thêm `detailMode: boolean`
+- `ChatView`: nhận và truyền `detailMode` xuống `ResponseBlock`
+- Router: truyền `detailMode={chatProps.detailMode}` thay vì các expanded sets
+
+#### 3. `src/ui/components/ResponseBlock.tsx` — Viết lại hoàn toàn
+- **Props mới:** `detailMode: boolean` thay thế `isThinkingExpanded` + `isToolExpanded`
+- **6 sub-components mới:**
+  - `ThinkingSummary` — Dòng tóm tắt: `🧠 Đã suy nghĩ (N tk)` hoặc `🧠 Đang suy nghĩ...`
+  - `ThinkingPanel` — Panel chi tiết: `▼ Suy nghĩ` + toàn bộ nội dung với prefix `│`
+  - `CompactToolRow` — Tool gọn: `✓ Đọc file thành công (main.ts)` hoặc `▶ Đang tìm kiếm...`
+  - `DetailToolRow` — Tool chi tiết: tên, arguments (JSON), result, trạng thái
+  - `StreamDot` — Animation "..." cho tool đang chạy
+- **Helpers:** `getStateColor()`, `getStateIcon()`, `getToolDisplayName()`, `getFileName()`, `formatArgs()`
+- **Footer:** Token count + hint `Ctrl+O để xem chi tiết` (chỉ hiện ở chế độ Tóm tắt khi có thinking/tool)
+- Xóa toàn bộ code cũ: `splitContent()`, tool block parsing inline, logic toggle phức tạp
+
+### Kiến trúc thư mục (cập nhật)
+```
+src/
+├── ui/
+│   ├── app.tsx               ← Đã sửa: detailMode thay expanded sets
+│   └── components/
+│       ├── TerminalMid.tsx   ← Đã sửa: ChatModeProps đổi interface
+│       └── ResponseBlock.tsx ← VIẾT LẠI: 2 chế độ view + 6 sub-components
+```
+
+### Cách hoạt động
+| Chế độ | Thinking | Tool calls | Response text |
+|--------|----------|------------|---------------|
+| **Tóm tắt** (`detailMode=false`) | `🧠 Đã suy nghĩ (847 tk)` | `✓ Đọc file thành công (main.ts)` | Hiển thị đầy đủ |
+| **Chi tiết** (`detailMode=true`) | `▼ Suy nghĩ` + toàn bộ nội dung | Tên, args, result, trạng thái | Hiển thị đầy đủ |
+
+### Phím tắt & Lệnh
+| Thao tác | Chức năng |
+|----------|-----------|
+| `Ctrl+O` | Toggle giữa chế độ Tóm tắt và Chi tiết |
+| `/expand` hoặc `/e` | Tương tự Ctrl+O (có thông báo xác nhận) |
+
+### Kết quả type-check
+```
+npm run typecheck → ✅ Pass (0 lỗi)
+```

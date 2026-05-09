@@ -25,6 +25,11 @@ export const registeredCommands: Command[] = [
     description: 'Xem log hệ thống — /logs (50 dòng cuối), /logs all, /logs clear',
   },
   {
+    name: '/expand',
+    aliases: ['/e'],
+    description: 'Mở rộng/thu gọn toàn bộ thinking và tool (alias: /e)',
+  },
+  {
     name: '/help',
     aliases: ['/h'],
     description: 'Hiển thị danh sách lệnh và trợ giúp',
