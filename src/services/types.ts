@@ -3,6 +3,7 @@ export type ToolCallState = 'running' | 'success' | 'error';
 
 /** Bản ghi một lần gọi tool */
 export interface ToolCallRecord {
+  id: string;
   name: string;
   arguments: Record<string, unknown>;
   resultContent?: string;

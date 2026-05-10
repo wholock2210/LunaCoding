@@ -7,6 +7,7 @@ import {
 } from './tools/index.js';
 import { parseXmlToolCalls } from './xml-parser.js';
 import { log, logError } from './logger.js';
+import { randomUUID } from 'node:crypto';
 import type { Message, ChatCompletionResult, ChatStreamChunk } from './types.js';
 import type { ToolCall, ToolExecutionContext } from './tools/types.js';
 
@@ -99,6 +100,7 @@ async function runToolLoopNonStreaming(
 
   let lastUsage: ChatCompletionResult['usage'] | undefined;
   let finalContent = '';
+  let toolCalls: ToolCall[] = [];
 
   for (let i = 0; i < MAX_TOOL_LOOP; i++) {
     let result: ChatCompletionResult;
@@ -118,10 +120,9 @@ async function runToolLoopNonStreaming(
       | Array<{ id?: string; name: string; arguments: Record<string, unknown> }>
       | undefined;
 
-    let toolCalls: ToolCall[] = [];
-
     if (nativeToolCalls && nativeToolCalls.length > 0) {
       toolCalls = nativeToolCalls.map((tc) => ({
+        id: tc.id || randomUUID(),
         name: tc.name,
         arguments: tc.arguments,
       }));
@@ -217,6 +218,7 @@ async function* runToolLoopStreaming(
           yield chunk;
         } else if (chunk.type === 'tool_call' && chunk.toolCall) {
           toolCallsReceived.push({
+            id: (chunk.toolCall as any).id || randomUUID(),
             name: chunk.toolCall.name,
             arguments: chunk.toolCall.arguments,
           });

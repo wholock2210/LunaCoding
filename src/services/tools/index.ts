@@ -24,6 +24,15 @@ export {
 } from './registry.js';
 
 export { readFileTool } from './read-file.js';
+export { listFilesTool } from './list-files.js';
+export { writeToFileTool } from './write-to-file.js';
+export { searchFilesTool } from './search-files.js';
+export { replaceInFileTool } from './replace-in-file.js';
+export { executeCommandTool } from './execute-command.js';
+export { readLintsTool } from './read-lints.js';
+export { listCodeDefinitionsTool } from './list-code-definitions.js';
+export { searchCodeSemanticTool } from './search-code-semantic.js';
+export { manageDependenciesTool } from './manage-dependencies.js';
 
 // ============================================================
 // Tool Executor

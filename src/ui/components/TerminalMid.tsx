@@ -6,7 +6,7 @@ import ProviderTypeSelect from './ProviderTypeSelect.js';
 import ProviderAddForm from './ProviderAddForm.js';
 import ModelMenu from './ModelMenu.js';
 import ModelAddInput from './ModelAddInput.js';
-import ResponseBlock from './ResponseBlock.js';
+import { ResponseBlock } from './ResponseBlock.js';
 import LoadingIndicator from './LoadingIndicator.js';
 
 // ─── Type định nghĩa UiMode ───────────────────────────────────────────

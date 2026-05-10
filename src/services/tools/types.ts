@@ -45,6 +45,8 @@ export interface ToolDefinition {
 
 /** Một lời gọi tool đã được parse từ response */
 export interface ToolCall {
+  /** ID của tool call (dùng làm key React) */
+  id: string;
   /** Tên tool cần gọi */
   name: string;
   /** Tham số đã parse */

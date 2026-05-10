@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ToolCall } from './tools/types.js';
 
 /**
@@ -53,7 +54,7 @@ export function parseXmlToolCalls(text: string): XmlParseResult {
     // Parse tham số từ inner XML
     const args = parseParameters(innerXml);
 
-    toolCalls.push({ name: toolName, arguments: args });
+    toolCalls.push({ id: randomUUID(), name: toolName, arguments: args });
 
     // Đánh dấu vị trí đã consume
     consumedPositions.push({

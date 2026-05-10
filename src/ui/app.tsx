@@ -16,6 +16,7 @@ import {
 } from '../services/config.js';
 import { createProvider } from '../services/providers/registry.js';
 import { getLogs, clearLogs } from '../services/logger.js';
+import { randomUUID } from 'node:crypto';
 import type {
   Message,
   UiMode,
@@ -356,6 +357,7 @@ const App = () => {
           const tc = chunk.toolCall;
           if (tc) {
             const newRecord: ToolCallRecord = {
+              id: randomUUID(),
               name: tc.name,
               arguments: tc.arguments,
               state: 'running',
@@ -382,6 +384,7 @@ const App = () => {
               const newCalls = [...prevCalls];
               const existing = newCalls[runningIdx]!;
               newCalls[runningIdx] = {
+                id: existing.id,
                 name: existing.name,
                 arguments: existing.arguments,
                 resultContent: tr.content.slice(0, 2000),

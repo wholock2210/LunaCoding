@@ -1,5 +1,14 @@
 import type { ToolDefinition, ToolParameter, NativeToolFormat } from './types.js';
 import { readFileTool } from './read-file.js';
+import { listFilesTool } from './list-files.js';
+import { writeToFileTool } from './write-to-file.js';
+import { searchFilesTool } from './search-files.js';
+import { replaceInFileTool } from './replace-in-file.js';
+import { executeCommandTool } from './execute-command.js';
+import { readLintsTool } from './read-lints.js';
+import { listCodeDefinitionsTool } from './list-code-definitions.js';
+import { searchCodeSemanticTool } from './search-code-semantic.js';
+import { manageDependenciesTool } from './manage-dependencies.js';
 
 /**
  * Registry tập trung của tất cả các tool.
@@ -7,6 +16,15 @@ import { readFileTool } from './read-file.js';
  */
 export const allTools: ToolDefinition[] = [
   readFileTool,
+  listFilesTool,
+  writeToFileTool,
+  searchFilesTool,
+  replaceInFileTool,
+  executeCommandTool,
+  readLintsTool,
+  listCodeDefinitionsTool,
+  searchCodeSemanticTool,
+  manageDependenciesTool,
 ];
 
 // ============================================================
