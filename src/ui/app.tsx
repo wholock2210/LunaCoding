@@ -122,11 +122,68 @@ const App = () => {
       return;
     }
 
+    // Ctrl+O được xử lý bởi useEffect intercept 'keypress' bên dưới.
+    // Giữ lại đây làm fallback trong trường hợp intercept không hoạt động.
     if (key.ctrl && input === 'o') {
       setDetailMode(prev => !prev);
       return;
     }
   });
+
+  // ============================================================
+  // Intercept 'keypress' event để bắt Ctrl+O
+  // (Phương án #3 — FIX.md)
+  // Ink TextInput độc chiếm sự kiện bàn phím khi focus,
+  // useInput ở cấp App không nhận được Ctrl+O.
+  // Giải pháp: gỡ listener 'keypress' của Ink, thay bằng listener
+  // của ta để lọc Ctrl+O trước, forward các phím khác cho Ink.
+  // ============================================================
+  const handleCtrlORef = useRef(() => {
+    setDetailMode(prev => !prev);
+  });
+  // Cập nhật ref mỗi render để tránh stale closure
+  handleCtrlORef.current = () => {
+    setDetailMode(prev => !prev);
+  };
+
+  useEffect(() => {
+    const stdin = process.stdin;
+    if (!stdin.isTTY) return;
+
+    // Lưu lại tất cả listener 'keypress' gốc của Ink
+    const originalListeners = stdin.listeners('keypress');
+
+    // Gỡ toàn bộ listener gốc khỏi stdin
+    stdin.removeAllListeners('keypress');
+
+    // Đăng ký listener của ta – lọc Ctrl+O, forward phần còn lại
+    const onKeypress = (chunk: any, key: any) => {
+      // Kiểm tra Ctrl+O (ctrl + o)
+      if (key?.ctrl && key?.name === 'o') {
+        console.log('[Ctrl+O] handleCtrlO called');
+        handleCtrlORef.current();
+        return; // Nuốt phím Ctrl+O, không forward cho Ink
+      }
+      // Forward toàn bộ phím khác cho listener gốc của Ink
+      for (const listener of originalListeners) {
+        try {
+          (listener as Function)(chunk, key);
+        } catch {
+          // Bỏ qua lỗi từ listener gốc
+        }
+      }
+    };
+
+    stdin.on('keypress', onKeypress);
+
+    return () => {
+      // Cleanup: gỡ listener của ta, khôi phục listener gốc của Ink
+      stdin.off('keypress', onKeypress);
+      for (const listener of originalListeners) {
+        stdin.on('keypress', listener as (...args: any[]) => void);
+      }
+    };
+  }, []);
 
   // ============================================================
   // Command handler — parse các lệnh /

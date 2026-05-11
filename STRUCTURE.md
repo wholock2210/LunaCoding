@@ -11,6 +11,8 @@ LunaCoding/
 ├── AGENTS.md                  # Hướng dẫn dành cho AI agent
 ├── DEV-LOG.md                 # Nhật ký phát triển (development log)
 ├── STRUCTURE.md               # File này - mô tả cấu trúc dự án
+├── plan.md                    # Kế hoạch mở rộng Tool System
+├── TOOL_AUDIT_REPORT.md       # Báo cáo kiểm tra triển khai Tool System
 ├── package.json               # Cấu hình Node.js, dependencies, scripts
 ├── package-lock.json          # Lock file npm
 ├── bun.lock                   # Lock file Bun (nếu dùng Bun)
@@ -41,11 +43,27 @@ LunaCoding/
     │   │   ├── google-gemini.ts        # Provider cho Google Gemini
     │   │   └── cohere.ts               # Provider cho Cohere
     │   │
-    │   └── tools/             # Framework tool calling cho AI
-    │       ├── types.ts       # Định nghĩa Tool, ToolCall, ToolResult, NativeToolFormat
-    │       ├── registry.ts    # ToolRegistry class: register, execute, getNativeTools
-    │       ├── read-file.ts   # Tool "read_file" — đọc nội dung file
-    │       └── index.ts       # Export + auto-register các tool
+    │   └── tools/             # Framework tool calling cho AI (13 tool + 3 helpers)
+    │       ├── types.ts                  # Định nghĩa ToolDefinition, ToolParameter, ToolExecutionContext, ToolResult
+    │       ├── registry.ts               # ToolRegistry: register, execute, getNativeTools, toToolMessages
+    │       ├── index.ts                  # Export + auto-register tất cả 13 tool
+    │       ├── path-utils.ts             # Helper resolve đường dẫn an toàn (chống path traversal)
+    │       ├── command-security.ts       # Helper chặn lệnh nguy hiểm (rm -rf, sudo, v.v.)
+    │       ├── search-utils.ts           # Helper tìm kiếm regex + glob pattern
+    │       ├── read-file.ts              # Tool "read_file" — đọc file với giới hạn dòng/ký tự
+    │       ├── write-to-file.ts          # Tool "write_to_file" — tạo/ghi đè file, tự động tạo thư mục
+    │       ├── replace-in-file.ts        # Tool "replace_in_file" — thay thế code với SEARCH/REPLACE blocks
+    │       ├── search-files.ts           # Tool "search_files" — tìm kiếm regex đệ quy, lọc glob
+    │       ├── list-files.ts             # Tool "list_files" — liệt kê cấu trúc thư mục (đệ quy/top-level)
+    │       ├── execute-command.ts        # Tool "execute_command" — thực thi CLI với phê duyệt + timeout
+    │       ├── read-lints.ts             # Tool "read_lints" — đọc lỗi từ TypeScript/ESLint
+    │       ├── list-code-definitions.ts  # Tool "list_code_definitions" — liệt kê class/function/interface
+    │       ├── search-code-semantic.ts   # Tool "search_code_semantic" — tìm kiếm ngữ nghĩa nâng cao
+    │       ├── manage-dependencies.ts    # Tool "manage_dependencies" — cài/gỡ/cập nhật packages (npm/pip/cargo)
+    │       ├── run-tests.ts              # Tool "run_tests" — chạy test suite, trả kết quả có cấu trúc
+    │       ├── git-operations.ts         # Tool "git_operations" — status/diff/log/branch/commit (có phê duyệt)
+    │       ├── preview-web.ts            # Tool "preview_web" — mở URL/file HTML trong trình duyệt
+    │       └── fetch-web-docs.ts         # Tool "fetch_web_docs" — tìm kiếm tài liệu từ MDN, DevDocs
     │
     └── ui/                    # Tầng giao diện (React components)
         ├── app.tsx            # Component gốc: state management + UI mode routing
@@ -214,31 +232,125 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
 
 ### `src/services/tools/` – Framework Tool Calling cho AI
 
-#### `types.ts` – Tool Type Definitions
-- `Tool`: interface định nghĩa một tool với `name`, `description`, `parameters` (JSON Schema), và `execute` function
-- `ToolCall`: lời gọi tool từ AI (`id`, `name`, `arguments`)
-- `ToolResult`: kết quả thực thi (`toolCallId`, `content`, `isError?`)
-- `NativeToolFormat`: định dạng tool schema cho native API (`'openai' | 'anthropic'`)
-- `ToolRegistry`: interface registry với `register`, `get`, `getAll`, `getNativeTools`, `execute`, `toToolMessages`
+Tool System gồm 13 tool (chia 3 giai đoạn) và 3 file helper, tuân thủ interface `ToolDefinition` chuẩn với example XML, xử lý lỗi try-catch, context-aware, và bảo mật.
 
-#### `registry.ts` – ToolRegistry Implementation
+#### Helper Files
+
+##### `types.ts` – Tool Type Definitions
+- `ToolDefinition`: `name`, `description`, `parameters: ToolParameter[]`, `example` (XML), `execute`
+- `ToolParameter`: `name`, `type` (`'string' | 'number' | 'boolean' | 'array'`), `description`, `required?`, `default?`
+- `ToolExecutionContext`: `workingDirectory`, `messages`
+- `ToolResult`: `content`, `isError?`
+- `NativeToolFormat`: `'openai' | 'anthropic' | 'cohere' | 'google-gemini'`
+
+##### `registry.ts` – ToolRegistry Implementation
 - Singleton `toolRegistry` instance
 - `register(tool)`: đăng ký tool mới, kiểm tra trùng tên
 - `get(name)`: lấy tool theo tên
 - `getAll()`: lấy tất cả tool đã đăng ký
-- `getNativeTools(format)`: trả về tool schema theo format native (OpenAI function calling hoặc Anthropic tool use)
-- `execute(name, args)`: thực thi tool, bọc try-catch, trả về `ToolResult` (có `isError: true` nếu lỗi)
-- `toToolMessages(results)`: chuyển mảng `ToolResult` thành messages định dạng OpenAI để gửi lại cho model
+- `getNativeTools(format)`: trả về tool schema theo format native
+- `execute(name, args, context)`: thực thi tool, bọc try-catch, trả về `ToolResult`
+- `toToolMessages(results)`: chuyển `ToolResult[]` thành messages định dạng OpenAI
 
-#### `read-file.ts` – Tool "read_file"
-- `name`: `"read_file"` — đọc nội dung file từ đường dẫn
-- `parameters`: `path` (string, required) — đường dẫn file cần đọc
-- `execute`: dùng `fs.readFileSync` với encoding UTF-8, giới hạn 50000 ký tự
-- Trả về nội dung file hoặc thông báo lỗi nếu file không tồn tại/không đọc được
-
-#### `index.ts` – Entry Point
+##### `index.ts` – Entry Point
 - Export `toolRegistry` instance
-- Auto-register tool `read_file` khi import
+- Auto-register tất cả 13 tool khi import
+
+##### `path-utils.ts` – Helper resolve đường dẫn an toàn
+- `resolveSafePath(basePath, targetPath)`: resolve đường dẫn, chống path traversal (không cho phép truy cập ngoài `basePath`)
+
+##### `command-security.ts` – Helper chặn lệnh nguy hiểm
+- `isDangerousCommand(command)`: kiểm tra lệnh có chứa pattern nguy hiểm (`rm -rf /`, `sudo`, `chmod 777 /`, `mkfs`, `dd if=`, `:(){ :|:& };:`, v.v.)
+- `sanitizeCommand(command)`: làm sạch command string
+
+##### `search-utils.ts` – Helper tìm kiếm regex + glob
+- `matchesGlob(filename, pattern)`: kiểm tra filename khớp với glob pattern
+- `searchInFile(filePath, regex)`: tìm kiếm regex trong một file, trả về các match kèm context
+
+#### Giai đoạn 1: Tool thao tác file & hệ thống (P0)
+
+##### `read-file.ts` – Tool "read_file"
+- **Tham số:** `path` (string, required), `start_line?` (number), `end_line?` (number)
+- **Chức năng:** Đọc nội dung file từ đường dẫn, giới hạn 50,000 ký tự, hỗ trợ đọc theo đoạn (start_line-end_line)
+- **Xử lý lỗi:** File không tồn tại (`ENOENT`), không có quyền đọc (`EACCES`), path ngoài working directory
+
+##### `write-to-file.ts` – Tool "write_to_file"
+- **Tham số:** `path` (string, required), `content` (string, required)
+- **Chức năng:** Tạo mới hoặc ghi đè file, tự động tạo thư mục cha nếu chưa tồn tại
+- **Giới hạn:** Nội dung tối đa 1MB (`MAX_FILE_SIZE = 1_000_000`)
+- **Xử lý lỗi:** Path rỗng, nội dung quá lớn, lỗi ghi file, path ngoài working directory
+
+##### `replace-in-file.ts` – Tool "replace_in_file"
+- **Tham số:** `path` (string, required), `diff` (string, required)
+- **Chức năng:** Thay thế chính xác đoạn code bằng cơ chế SEARCH/REPLACE blocks
+- **Cơ chế:** Parse `diff` string thành các block `------- SEARCH` / `=======` / `+++++++ REPLACE`, kiểm tra SEARCH tồn tại duy nhất một lần trong file, sau đó thay thế
+- **Xử lý lỗi:** Thiếu delimiter, block không đóng, SEARCH không tìm thấy, SEARCH xuất hiện nhiều lần, file không tồn tại, không có quyền ghi
+
+##### `search-files.ts` – Tool "search_files"
+- **Tham số:** `path` (string, required), `regex` (string, required), `file_pattern?` (string)
+- **Chức năng:** Tìm kiếm regex đệ quy trong thư mục, hỗ trợ lọc theo glob pattern (`*.ts`, `*.tsx`, v.v.)
+- **Output:** Mỗi match kèm file path, line number, và context (các dòng xung quanh)
+
+##### `list-files.ts` – Tool "list_files"
+- **Tham số:** `path` (string, required), `recursive?` (boolean, default: false)
+- **Chức năng:** Liệt kê cấu trúc thư mục, `recursive: true` hiển thị toàn bộ cây thư mục, `recursive: false` chỉ hiển thị top-level
+- **Output:** Danh sách file/thư mục với ký hiệu `📁` cho thư mục, `📄` cho file
+
+##### `execute-command.ts` – Tool "execute_command"
+- **Tham số:** `command` (string, required), `requires_approval` (boolean, required)
+- **Chức năng:** Thực thi lệnh CLI với cơ chế phê duyệt an toàn
+- **Bảo mật:** Chặn lệnh nguy hiểm qua `command-security.ts`, timeout mặc định 30 giây, `requires_approval: true` cho lệnh có thể gây hại
+- **Output:** stdout, stderr, exit code
+
+#### Giai đoạn 2: Tool phân tích & quản lý code (P1)
+
+##### `read-lints.ts` – Tool "read_lints"
+- **Tham số:** `path?` (string)
+- **Chức năng:** Đọc lỗi và cảnh báo từ TypeScript compiler (`tsc --noEmit`) hoặc ESLint
+- **Output:** Danh sách lỗi/cảnh báo kèm file, dòng, cột, và message
+
+##### `list-code-definitions.ts` – Tool "list_code_definitions"
+- **Tham số:** `path` (string, required)
+- **Chức năng:** Liệt kê các định nghĩa (class, function, method, interface, type, enum) ở top-level của thư mục, dùng regex để parse
+- **Output:** Danh sách definitions kèm tên, loại, và file path
+
+##### `search-code-semantic.ts` – Tool "search_code_semantic"
+- **Tham số:** `path` (string, required), `pattern` (string, required), `context_lines?` (number, default: 2)
+- **Chức năng:** Tìm kiếm ngữ nghĩa nâng cao: tìm pattern, gom nhóm theo file, hiển thị context lines xung quanh mỗi match
+- **Output:** Kết quả được nhóm theo file, mỗi match kèm line number và context
+
+##### `manage-dependencies.ts` – Tool "manage_dependencies"
+- **Tham số:** `action` (`'install' | 'remove' | 'update'`, required), `package` (string, required), `package_manager?` (`'npm' | 'pip' | 'cargo'`, default: auto-detect)
+- **Chức năng:** Cài đặt, gỡ bỏ, hoặc cập nhật packages
+- **Auto-detect:** Tự phát hiện package manager dựa trên file lock (`package-lock.json` → npm, `requirements.txt` → pip, `Cargo.toml` → cargo)
+
+#### Giai đoạn 3: Tool DevOps & automation (P2)
+
+##### `run-tests.ts` – Tool "run_tests"
+- **Tham số:** `test_command?` (string), `path?` (string)
+- **Chức năng:** Chạy test suite và trả về kết quả có cấu trúc (passed/failed/errors)
+- **Auto-detect:** Tự phát hiện test framework dựa trên project type (`npm test`, `pytest`, `cargo test`)
+- **Output:** Số lượng test passed/failed, danh sách lỗi chi tiết, exit code
+
+##### `git-operations.ts` – Tool "git_operations"
+- **Tham số:** `operation` (`'status' | 'diff' | 'log' | 'branch' | 'commit'`, required), `message?` (string, cho commit), `path?` (string)
+- **Chức năng:** Thao tác git cơ bản:
+  - `status`: trạng thái working tree
+  - `diff`: xem thay đổi (staged + unstaged)
+  - `log`: lịch sử commit (giới hạn 20 dòng)
+  - `branch`: danh sách branch
+  - `commit`: tạo commit mới (yêu cầu `requires_approval`)
+- **Bảo mật:** `commit` cần phê duyệt, chặn `push --force`, `hard reset`
+
+##### `preview-web.ts` – Tool "preview_web"
+- **Tham số:** `url_or_path` (string, required)
+- **Chức năng:** Mở URL hoặc file HTML trong trình duyệt để xem trước kết quả
+- **Xử lý:** Nếu là URL (`http://` hoặc `https://`) → mở trực tiếp; nếu là file `.html` → resolve path và mở bằng `file://`
+
+##### `fetch-web-docs.ts` – Tool "fetch_web_docs"
+- **Tham số:** `query` (string, required), `source?` (`'mdn' | 'devdocs' | 'auto'`, default: `'auto'`)
+- **Chức năng:** Tìm kiếm tài liệu từ web (MDN, DevDocs) cho ngôn ngữ/framework đang dùng
+- **Output:** Tóm tắt tài liệu, URL gốc, và code examples (nếu có)
 
 ### `src/ui/app.tsx` – Root Component
 - **State:**
@@ -351,6 +463,7 @@ LunaCoding là ứng dụng **AI Chatbot chạy trên terminal** theo mô hình 
   - `/model` (alias `/models`) — Quản lý model
   - `/logs` — Xem log hệ thống
   - `/tool-mode` (alias `/tm`) — Xem/đổi chế độ gọi tool (auto/native/xml)
+  - `/expand` (alias `/e`) — Toggle chế độ Tóm tắt ↔ Chi tiết
   - `/help` (alias `/h`) — Trợ giúp
 - Hàm `filterCommands(query)`: lọc lệnh theo chuỗi sau dấu `/`, tìm kiếm mờ trên tên chính và alias
 - Hàm `isKnownCommand(input)`: kiểm tra input có khớp với lệnh đã đăng ký (hỗ trợ cả lệnh kèm tham số)

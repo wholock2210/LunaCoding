@@ -299,7 +299,7 @@ async function runCommand(
   cwd: string,
   description: string,
 ): Promise<ToolResult> {
-  return new Promise((resolve) => {
+  return new Promise<ToolResult>((resolve) => {
     let stdout = '';
     let stderr = '';
 
