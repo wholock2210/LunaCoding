@@ -34,6 +34,11 @@ export const registeredCommands: Command[] = [
     aliases: ['/h'],
     description: 'Hiển thị danh sách lệnh và trợ giúp',
   },
+  {
+    name: '/language',
+    aliases: ['/lang'],
+    description: 'Chuyển đổi ngôn ngữ giao diện — /language vi hoặc /language en',
+  },
 ];
 
 /**

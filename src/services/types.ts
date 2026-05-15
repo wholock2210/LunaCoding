@@ -56,6 +56,7 @@ export interface AppConfig {
   currentProviderId: string | null;
   providers: ProviderConfig[];
   toolParseMode?: ToolParseMode;
+  language?: string;
 }
 
 /** Kết quả test connection */
@@ -73,6 +74,9 @@ export interface Command {
 
 /** Các chế độ UI */
 export type UiMode = 'chat' | 'provider-list' | 'provider-type-select' | 'provider-add-form' | 'model-list';
+
+/** Các chế độ điều khiển agent */
+export type AgentMode = 'normal' | 'plan' | 'accept-edit' | 'bypass' | 'fix' | 'god-mode';
 
 /** Trạng thái form thêm provider */
 export interface ProviderFormState {

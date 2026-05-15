@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
+import { t } from '../../services/language.js';
 
 const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -15,7 +16,7 @@ const waveColors = [
 ];
 
 const dimColor = '#446688';
-const defaultText = 'LunaCoding đang trả lời';
+const defaultText = t('loading.default');
 const waveWidth = waveColors.length;
 
 interface LoadingIndicatorProps {

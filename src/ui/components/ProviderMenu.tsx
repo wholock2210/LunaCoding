@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ProviderConfig, ProviderType } from '../../services/types.js';
+import { t } from '../../services/language.js';
 
 const ITEMS_PER_PAGE = 5;
 
@@ -60,16 +61,19 @@ const ProviderMenu = ({ providers, onSelect, onAdd, onBack }: ProviderMenuProps)
       <Box flexDirection="column" padding={1} borderStyle="round" borderColor="magenta">
         <Box marginBottom={1}>
           <Text bold color="magenta">
-            📡 Quản lý Provider
+            {t('provider.title')}
           </Text>
         </Box>
         <Box marginY={1}>
-          <Text dimColor>Chưa có provider nào được thêm.</Text>
+          <Text dimColor>{t('provider.noProvider')}</Text>
         </Box>
         <Box marginY={1}>
           <Text>
-            Nhấn <Text color="green" bold>A</Text> để thêm provider mới,{' '}
-            <Text color="yellow" bold>Q</Text> để quay lại chat.
+            {t('provider.press')}
+            <Text color="green" bold>A</Text>
+            {t('provider.toAdd')}
+            <Text color="yellow" bold>Q</Text>
+            {t('provider.toQuit')}
           </Text>
         </Box>
       </Box>
@@ -80,13 +84,13 @@ const ProviderMenu = ({ providers, onSelect, onAdd, onBack }: ProviderMenuProps)
     <Box flexDirection="column" padding={1} borderStyle="round" borderColor="magenta">
       <Box marginBottom={1}>
         <Text bold color="magenta">
-          📡 Quản lý Provider — Trang {page + 1}/{totalPages}
+          {t('provider.title')} — {t('provider.page')}{page + 1}/{totalPages}
         </Text>
       </Box>
 
       {hasMoreUp && (
         <Box>
-          <Text color="cyan">↑ Còn provider phía trên</Text>
+          <Text color="cyan">{t('provider.moreAbove')}</Text>
         </Box>
       )}
 
@@ -106,7 +110,7 @@ const ProviderMenu = ({ providers, onSelect, onAdd, onBack }: ProviderMenuProps)
             {isSelected && (
               <Text color="green" bold>
                 {' '}
-                ← Chọn
+                {t('provider.toSelect')}
               </Text>
             )}
           </Box>
@@ -115,18 +119,16 @@ const ProviderMenu = ({ providers, onSelect, onAdd, onBack }: ProviderMenuProps)
 
       {hasMoreDown && (
         <Box>
-          <Text color="cyan">↓ Còn provider phía dưới</Text>
+          <Text color="cyan">{t('provider.moreBelow')}</Text>
         </Box>
       )}
 
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>
-          Dùng <Text color="cyan" bold>↑↓</Text> để chọn,{' '}
-          <Text color="green" bold>Enter</Text> để xác nhận
+          {t('provider.help.navigate')}
         </Text>
         <Text dimColor>
-          Nhấn <Text color="green" bold>A</Text> để thêm mới,{' '}
-          <Text color="yellow" bold>Q</Text> để quay lại chat
+          {t('provider.help.actions')}
         </Text>
       </Box>
     </Box>

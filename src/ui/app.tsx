@@ -6,6 +6,7 @@ import TerminalBottom from './components/TerminalBottom.js';
 import { sendChatMessageStream } from '../services/chat.js';
 import {
   loadConfig,
+  saveConfig,
   setCurrentProvider,
   addProvider,
   updateProviderModels,
@@ -25,7 +26,10 @@ import type {
   ChatStreamChunk,
   ToolParseMode,
   ToolCallRecord,
+  AgentMode,
 } from '../services/types.js';
+import { MODE_LABELS } from './components/AgentModeBar.js';
+import { initLanguage, setLanguage, t } from '../services/language.js';
 
 const App = () => {
   // ============================================================
@@ -45,6 +49,7 @@ const App = () => {
   // UI Mode & Provider state
   // ============================================================
   const [uiMode, setUiMode] = useState<UiMode>('chat');
+  const [agentMode, setAgentMode] = useState<AgentMode>('normal');
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [selectedProviderType, setSelectedProviderType] =
     useState<ProviderType | null>(null);
@@ -109,6 +114,8 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    const config = loadConfig();
+    initLanguage(config.language);
     refreshProviders();
   }, []);
 
@@ -301,6 +308,34 @@ const App = () => {
       return;
     }
 
+    // ── /mode — hiển thị hoặc chuyển AgentMode ─────────────────
+    if (normalized === '/mode') {
+      const modeList = MODE_LABELS.map(({ mode, label, desc }) =>
+        `${agentMode === mode ? '◉' : '○'} **${mode}** — ${label}: ${desc}`
+      ).join('\n');
+      const modeMsg: Message = {
+        role: 'assistant',
+        content: `⚙️ **Chế độ agent hiện tại: \`${agentMode}\`**\n\n${modeList}\n\nDùng \`/mode <tên-mode>\` để chuyển. Hoặc nhấn **Tab** để xoay vòng mode.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, modeMsg]);
+      return;
+    }
+
+    // /mode <tên-mode>
+    const modeMatch = normalized.match(/^\/mode\s+(normal|plan|accept-edit|bypass|fix|god-mode)$/);
+    if (modeMatch) {
+      const newMode = modeMatch[1] as AgentMode;
+      setAgentMode(newMode);
+      const confirmMsg: Message = {
+        role: 'assistant',
+        content: `⚙️ Đã chuyển chế độ agent sang **\`${newMode}\`**.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMsg]);
+      return;
+    }
+
     if (normalized === '/help' || normalized === '/h') {
       const helpMsg: Message = {
         role: 'assistant',
@@ -308,15 +343,44 @@ const App = () => {
           '📋 **Các lệnh có sẵn:**\n' +
           '  /provider  — Quản lý provider (thêm, chọn)\n' +
           '  /model     — Quản lý model của provider hiện tại\n' +
+          '  /mode      — Xem/đổi chế độ agent (normal, plan, accept-edit, bypass, fix, god-mode)\n' +
           '  /tool-mode — Xem/đổi chế độ gọi tool (auto/native/xml)\n' +
           '  /logs      — Xem log hệ thống (/logs, /logs all, /logs clear)\n' +
           '  /expand    — Chuyển chế độ Tóm tắt / Chi tiết (alias: /e)\n' +
           '  /help      — Hiển thị trợ giúp này\n' +
           '\n💡 Nhập tin nhắn thông thường để trò chuyện với AI.\n' +
-          '⌨️  Phím tắt: Ctrl+O (toggle Tóm tắt/Chi tiết), Ctrl+I (stable mode).',
+          '⌨️  Phím tắt: Tab (chuyển agent mode), Ctrl+O (toggle Tóm tắt/Chi tiết), Ctrl+I (stable mode).',
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, helpMsg]);
+      return;
+    }
+
+    // ── /language — đổi ngôn ngữ giao diện ──────────────────
+    if (normalized === '/language' || normalized === '/lang') {
+      const langMsg: Message = {
+        role: 'assistant',
+        content: t('app.language.invalid'),
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, langMsg]);
+      return;
+    }
+
+    const langMatch = normalized.match(/^\/(?:language|lang)\s+(vi|en)$/);
+    if (langMatch) {
+      const lang = langMatch[1] as 'vi' | 'en';
+      setLanguage(lang);
+      const cfg = loadConfig();
+      cfg.language = lang;
+      saveConfig(cfg);
+      const langName = lang === 'vi' ? 'Tiếng Việt' : 'English';
+      const confirmMsg: Message = {
+        role: 'assistant',
+        content: t('app.language.switched', { langName }),
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMsg]);
       return;
     }
 
@@ -704,6 +768,11 @@ const App = () => {
     setUiMode('chat');
   }, []);
 
+  /** Chuyển đổi AgentMode */
+  const handleAgentModeChange = useCallback((mode: AgentMode) => {
+    setAgentMode(mode);
+  }, []);
+
   // ============================================================
   // Render
   // ============================================================
@@ -755,6 +824,8 @@ const App = () => {
         isLoading={isLoading}
         uiMode={uiMode}
         stableMode={stableMode}
+        agentMode={agentMode}
+        onAgentModeChange={handleAgentModeChange}
       />
     </Box>
   );

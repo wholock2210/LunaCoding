@@ -1,1 +1,0 @@
-anh loc dep trai

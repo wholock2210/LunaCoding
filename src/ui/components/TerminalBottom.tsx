@@ -2,8 +2,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from './TerminalTextInput.js';
 import { useInput } from 'ink';
-import type { UiMode } from '../../services/types.js';
+import type { UiMode, AgentMode } from '../../services/types.js';
+import AgentModeBar, { getNextMode } from './AgentModeBar.js';
 import { filterCommands, isKnownCommand } from '../../services/commands.js';
+import { t } from '../../services/language.js';
 
 interface TerminalBottomProps {
   onSend: (input: string) => void;
@@ -11,6 +13,8 @@ interface TerminalBottomProps {
   isLoading: boolean;
   uiMode: UiMode;
   stableMode: boolean;
+  agentMode: AgentMode;
+  onAgentModeChange: (mode: AgentMode) => void;
 }
 
 const TerminalBottom = ({
@@ -19,6 +23,8 @@ const TerminalBottom = ({
   isLoading,
   uiMode,
   stableMode,
+  agentMode,
+  onAgentModeChange,
 }: TerminalBottomProps) => {
   const [inputValue, setInputValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -47,15 +53,19 @@ const TerminalBottom = ({
   // ── Tab: tự động hoàn thành lệnh đầu tiên ──────────────────
   useInput(
     (_input, key) => {
-      if (key.tab && showSuggestions && suggestions.length > 0) {
-        const top = suggestions[0];
-        if (top) {
-          setInputValue(top.name + ' ');
-          setShowSuggestions(false);
+      if (key.tab && uiMode === 'chat') {
+        if (showSuggestions && suggestions.length > 0) {
+          const top = suggestions[0];
+          if (top) {
+            setInputValue(top.name + ' ');
+            setShowSuggestions(false);
+          }
+        } else {
+          onAgentModeChange(getNextMode(agentMode));
         }
       }
     },
-    { isActive: showSuggestions && suggestions.length > 0 },
+    { isActive: true },
   );
 
   const handleSubmit = (value: string) => {
@@ -107,9 +117,7 @@ const TerminalBottom = ({
           ))
         ) : (
           <Box>
-            <Text dimColor>💡 Không tìm thấy lệnh khớp. Gõ </Text>
-            <Text color="yellow" bold>/help</Text>
-            <Text dimColor> để xem danh sách lệnh.</Text>
+            <Text dimColor>{t('bottom.cmd.notFound')}<Text color="yellow" bold>/help</Text>{t('bottom.cmd.helpHint')}</Text>
           </Box>
         )}
       </Box>
@@ -128,9 +136,9 @@ const TerminalBottom = ({
       >
         <Box>
           <Text dimColor>
-            Nhấn <Text color="yellow" bold>Q</Text> để quay lại{' '}
-            | <Text color="cyan" bold>↑↓</Text> di chuyển{' '}
-            | <Text color="green" bold>Enter</Text> chọn
+            {t('bottom.cmd.press')}<Text color="yellow" bold>Q</Text>{t('bottom.cmd.toReturn')}
+            | <Text color="cyan" bold>↑↓</Text>{t('bottom.cmd.move')}
+            | <Text color="green" bold>Enter</Text>{t('bottom.cmd.select')}
           </Text>
         </Box>
       </Box>
@@ -149,11 +157,11 @@ const TerminalBottom = ({
       {stableMode && (
         <Box marginBottom={1}>
           <Text color="cyan" bold>
-            🔒 Stable
+            {t('bottom.stable.label')}
           </Text>
-          <Text dimColor> — UI đã đóng băng để bảo vệ IME. </Text>
+          <Text dimColor>{t('bottom.stable.frozen')}</Text>
           <Text color="yellow">Ctrl+I</Text>
-          <Text dimColor> để tắt.</Text>
+          <Text dimColor>{t('bottom.stable.toOff')}</Text>
         </Box>
       )}
       <Box>
@@ -166,11 +174,18 @@ const TerminalBottom = ({
           onSubmit={handleSubmit}
           placeholder={
             isLoading
-              ? 'Đang chờ AI trả lời...'
-              : 'Nhập tin nhắn hoặc lệnh (/). Gõ /help để xem tất cả lệnh...'
+              ? t('bottom.placeholder.loading')
+              : t('bottom.placeholder.default')
           }
         />
       </Box>
+      {/* ── Thanh ngang phân cách input và mode ────────────── */}
+      <Box marginTop={0}>
+        <Text color="#22D3EE" dimColor>
+          {'─'.repeat(Math.max((process.stdout.columns || 80) - 4, 20))}
+        </Text>
+      </Box>
+      <AgentModeBar currentMode={agentMode} />
       {renderSuggestions()}
     </Box>
   );

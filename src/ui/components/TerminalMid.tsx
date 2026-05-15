@@ -8,6 +8,7 @@ import ModelMenu from './ModelMenu.js';
 import ModelAddInput from './ModelAddInput.js';
 import { ResponseBlock } from './ResponseBlock.js';
 import LoadingIndicator from './LoadingIndicator.js';
+import { t } from '../../services/language.js';
 
 // ─── Type định nghĩa UiMode ───────────────────────────────────────────
 
@@ -95,7 +96,7 @@ const ChatView = React.memo(({ messages, isLoading, isStreaming, streamingPhase,
 			{messages.length === 0 && !isLoading ? (
 				<Box justifyContent="center" alignItems="center" flexGrow={1}>
 					<Text dimColor>
-						Chưa có tin nhắn nào. Hãy nhập tin nhắn bên dưới để bắt đầu trò chuyện!
+						{t('mid.empty')}
 					</Text>
 				</Box>
 			) : (
@@ -139,8 +140,8 @@ const ChatView = React.memo(({ messages, isLoading, isStreaming, streamingPhase,
 						<LoadingIndicator text="responding..." />
 					) : (
 						<Box flexDirection="column">
-							<LoadingIndicator text="đang suy nghĩ..." />
-							<Text dimColor>  └ (ctrl + o để xem suy nghĩ)</Text>
+							<LoadingIndicator text={t('mid.thinking')} />
+							<Text dimColor>{t('mid.thinkingHint')}</Text>
 						</Box>
 					)}
 				</Box>
@@ -233,7 +234,7 @@ const TerminalMid = ({
 			return (
 				<Box flexDirection="column" flexGrow={1} padding={1} borderStyle="round" borderColor="blue">
 					<Box justifyContent="center" alignItems="center" flexGrow={1}>
-						<Text dimColor>Lỗi: uiMode không hợp lệ ({uiMode})</Text>
+						<Text dimColor>{t('mid.error.invalidMode', { mode: uiMode })}</Text>
 					</Box>
 				</Box>
 			);

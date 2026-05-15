@@ -1,78 +1,285 @@
-# Kế hoạch mở rộng Tool System cho LunaCoding
+# Kế hoạch triển khai: UI chuyển Agent Mode (Tab)
 
-## Hiện trạng
-- Đã có nền tảng vững chắc: `ToolDefinition`, `ToolExecutionContext`, `ToolParameter`, hỗ trợ 4 native format (OpenAI, Anthropic, Gemini, Cohere) + XML mode
-- Tool duy nhất hiện tại: `read_file` - đọc file với giới hạn dòng và số ký tự
+## Tổng quan
 
----
-
-## Giai đoạn 1: Tool thao tác file & hệ thống (P0 - 5 tool)
-Bộ công cụ thiết yếu để AI có thể đọc, ghi, sửa code và tương tác với hệ thống.
-
-| # | Tool | Mô tả | Tham số chính |
-|---|------|-------|---------------|
-| 1 | `write_to_file` | Tạo mới hoặc ghi đè file, tự động tạo thư mục cha nếu chưa tồn tại | `path`, `content` |
-| 2 | `replace_in_file` | Thay thế chính xác đoạn code trong file bằng cơ chế SEARCH/REPLACE blocks | `path`, `diff` |
-| 3 | `search_files` | Tìm kiếm regex đệ quy trong thư mục, hỗ trợ lọc theo glob pattern | `path`, `regex`, `file_pattern?` |
-| 4 | `list_files` | Liệt kê cấu trúc thư mục, có tùy chọn đệ quy | `path`, `recursive?` |
-| 5 | `execute_command` | Thực thi lệnh CLI với cơ chế phê duyệt an toàn (`requires_approval`) | `command`, `requires_approval` |
-
-## Giai đoạn 2: Tool phân tích & quản lý code (P1 - 4 tool)
-Các tool giúp AI hiểu sâu hơn về codebase và quản lý môi trường phát triển.
-
-| # | Tool | Mô tả |
-|---|------|-------|
-| 6 | `read_lints` | Đọc lỗi và cảnh báo từ TypeScript compiler (`tsc --noEmit`) hoặc ESLint |
-| 7 | `list_code_definitions` | Liệt kê các định nghĩa (class, function, method, interface) ở top-level của thư mục |
-| 8 | `search_code_semantic` | Tìm kiếm ngữ nghĩa nâng cao (pattern + context lines + file grouping) |
-| 9 | `manage_dependencies` | Cài đặt, gỡ bỏ, cập nhật packages (npm, pip, cargo tùy project type) |
-
-## Giai đoạn 3: Tool DevOps & automation (P2 - 4 tool)
-Các tool tự động hóa quy trình phát triển, kiểm thử và tra cứu.
-
-| # | Tool | Mô tả |
-|---|------|-------|
-| 10 | `run_tests` | Chạy test suite và trả về kết quả có cấu trúc (passed/failed/errors) |
-| 11 | `git_operations` | Thao tác git cơ bản: status, diff, log, branch, commit (có phê duyệt cho lệnh phá hoại) |
-| 12 | `preview_web` | Mở URL hoặc file HTML trong trình duyệt để xem trước kết quả |
-| 13 | `fetch_web_docs` | Tìm kiếm tài liệu từ web (MDN, DevDocs) cho ngôn ngữ/framework đang dùng |
+Thêm thanh chuyển đổi **Agent Mode** nằm trong `TerminalBottom`, cho phép người dùng nhấn **Tab** để xoay vòng qua 6 chế độ điều khiển mức độ tự động hóa của AI agent khi gọi tool.
 
 ---
 
-## Quy tắc triển khai chung cho mọi tool
+## Danh sách AgentMode (6 chế độ)
 
-1. **Tuân thủ `ToolDefinition` interface** - `name`, `description`, `parameters[]`, `example` (XML), `execute`
-2. **Tham số mô tả NGẮN** (1 dòng), có `required`, `default` rõ ràng
-3. **Ví dụ XML đầy đủ** trong `example` để AI tham khảo khi dùng XML mode
-4. **Xử lý lỗi toàn diện** - try-catch, trả về `ToolResult` với `isError: true` khi lỗi
-5. **Giới hạn output** - file quá lớn thì giới hạn số dòng/ký tự (như `read_file` giới hạn 50k ký tự)
-6. **Context-aware** - dùng `context.workingDirectory` để resolve đường dẫn tương đối
-7. **Bảo mật** - `execute_command` và `git_operations` phải có `requires_approval`, chặn lệnh nguy hiểm (`rm -rf /`, `sudo`, v.v.)
-8. **Đăng ký qua `registerTool()`** - thêm vào mảng `allTools` trong `src/services/tools/registry.ts`
-9. **kiểm thử** sau khi triển khai xong 1 tool hãy thực hiện kiểm thử tool đó có hoạt động ở mọi trường hợp hay không đảm bảo không lỗi phát sinh
-
-## Cấu trúc file cho mỗi tool mới
-
-Mỗi tool được đặt trong file riêng tại `src/services/tools/`:
 ```
-src/services/tools/
-├── types.ts              # Đã có - Type definitions
-├── registry.ts           # Đã có - Đăng ký tool
-├── index.ts              # Đã có - Export + auto-register
-├── read-file.ts          # Đã có - Tool đọc file
-├── write-to-file.ts      # Mới
-├── replace-in-file.ts    # Mới
-├── search-files.ts       # Mới
-├── list-files.ts         # Mới
-├── execute-command.ts    # Mới
-└── ...                   # Các tool giai đoạn 2, 3
+normal → plan → accept-edit → bypass → fix → god-mode
 ```
 
-## Lộ trình thời gian dự kiến
+| # | Mode | Mô tả |
+|---|------|-------|
+| 1 | `normal` | Chế độ thông thường — hỏi trước khi chạy mọi tool |
+| 2 | `plan` | Chỉ lên kế hoạch, không chạy tool |
+| 3 | `accept-edit` | Tự động chạy tool sửa file (write/replace), lệnh bash vẫn phải hỏi |
+| 4 | `bypass` | Tự động tất cả tool, không cần xác nhận |
+| 5 | `fix` | Chế độ sửa lỗi lặp — đọc FIX.md, thử phương án mới sau mỗi lần thất bại |
+| 6 | `god-mode` | Vòng lặp agent vô tận — tự chạy và test đến khi hoàn thành mục tiêu |
 
-| Giai đoạn | Số tool | Thời gian dự kiến |
-|-----------|---------|-------------------|
-| Giai đoạn 1 | 5 tool | 3 ngày |
-| Giai đoạn 2 | 4 tool | 2 ngày |
-| Giai đoạn 3 | 4 tool | 3 ngày |
-| **Tổng** | **13 tool** | **8 ngày** |
+---
+
+## Các bước thực hiện
+
+### Bước 1: Thêm type `AgentMode` vào `src/services/types.ts`
+
+```typescript
+/** Các chế độ điều khiển agent */
+export type AgentMode = 'normal' | 'plan' | 'accept-edit' | 'bypass' | 'fix' | 'god-mode';
+```
+
+Đặt sau dòng `export type UiMode = ...` hiện tại (dòng 75).
+
+---
+
+### Bước 2: Tạo component `src/ui/components/AgentModeBar.tsx`
+
+**Đường dẫn:** `src/ui/components/AgentModeBar.tsx`
+
+**Props:**
+```typescript
+interface AgentModeBarProps {
+  currentMode: AgentMode;
+  onModeChange: (mode: AgentMode) => void;
+}
+```
+
+**Cấu trúc hiển thị:**
+```
+◉ Normal  ○ Plan  ○ Accept Edit  ○ Bypass  ○ Fix  ○ God Mode
+```
+
+**Chi tiết:**
+- Hiển thị tất cả 6 mode trên một hàng ngang (`<Box flexDirection="row">`)
+- Mode hiện tại: màu **cyan bold**, có ký hiệu `◉`
+- Các mode khác: màu **dimColor**, ký hiệu `○`
+- Các mode cách nhau bởi 2-3 khoảng trắng
+- Bên dưới hàng mode có dòng gợi ý nhỏ: `Tab để chuyển mode · /mode để đổi nhanh`
+- Sử dụng `React.memo` để tránh re-render không cần thiết
+- Mảng thứ tự mode cố định:
+  ```typescript
+  const MODE_ORDER: AgentMode[] = ['normal', 'plan', 'accept-edit', 'bypass', 'fix', 'god-mode'];
+  ```
+
+**Hàm helper lấy mode kế tiếp:**
+```typescript
+function getNextMode(current: AgentMode): AgentMode {
+  const idx = MODE_ORDER.indexOf(current);
+  return MODE_ORDER[(idx + 1) % MODE_ORDER.length];
+}
+```
+
+---
+
+### Bước 3: Chỉnh sửa `TerminalBottom.tsx`
+
+**3a. Thêm props mới:**
+```typescript
+interface TerminalBottomProps {
+  onSend: (input: string) => void;
+  onCommand: (command: string) => void;
+  isLoading: boolean;
+  uiMode: UiMode;
+  stableMode: boolean;
+  agentMode: AgentMode;                    // ← mới
+  onAgentModeChange: (mode: AgentMode) => void;  // ← mới
+}
+```
+
+**3b. Import component mới:**
+```typescript
+import AgentModeBar from './AgentModeBar.js';
+import type { AgentMode } from '../../services/types.js';
+```
+
+**3c. Sửa logic `useInput` cho Tab:**
+
+Hiện tại Tab chỉ dùng để autocomplete. Cần phân biệt:
+```typescript
+useInput(
+  (_input, key) => {
+    if (key.tab) {
+      if (showSuggestions && suggestions.length > 0) {
+        // Có suggestions → autocomplete (giữ nguyên)
+        const top = suggestions[0];
+        if (top) {
+          setInputValue(top.name + ' ');
+          setShowSuggestions(false);
+        }
+      } else {
+        // Không có suggestions → chuyển AgentMode
+        onAgentModeChange(getNextMode(agentMode));
+      }
+    }
+  },
+  { isActive: true },  // Luôn active để bắt Tab
+);
+```
+
+> **Lưu ý:** Cần import `getNextMode` hoặc tính mode kế tiếp ngay trong TerminalBottom. Tốt nhất import `getNextMode` từ `AgentModeBar.tsx` (export named) hoặc định nghĩa một utility shared.
+
+**3d. Render AgentModeBar trong phần chat mode:**
+
+Chèn `<AgentModeBar>` vào giữa `<TextInput>` và `renderSuggestions()` trong block return của chat mode:
+
+```tsx
+<Box>
+  <Text color={...} bold>{'> '}</Text>
+  <TextInput ... />
+</Box>
+<AgentModeBar currentMode={agentMode} onModeChange={onAgentModeChange} />
+{renderSuggestions()}
+```
+
+**3e. Destructure props mới:**
+```typescript
+const TerminalBottom = ({
+  onSend,
+  onCommand,
+  isLoading,
+  uiMode,
+  stableMode,
+  agentMode,          // ← thêm
+  onAgentModeChange,  // ← thêm
+}: TerminalBottomProps) => {
+```
+
+---
+
+### Bước 4: Cập nhật `app.tsx`
+
+**4a. Thêm import:**
+```typescript
+import type { Message, UiMode, ProviderConfig, ProviderType, ChatStreamChunk, ToolParseMode, ToolCallRecord, AgentMode } from '../services/types.js';
+```
+
+**4b. Thêm state:**
+```typescript
+const [agentMode, setAgentMode] = useState<AgentMode>('normal');
+```
+
+Đặt gần dòng `const [uiMode, setUiMode] = useState<UiMode>('chat');` (dòng 47).
+
+**4c. Thêm handler:**
+```typescript
+const handleAgentModeChange = useCallback((mode: AgentMode) => {
+  setAgentMode(mode);
+}, []);
+```
+
+**4d. Truyền props xuống TerminalBottom:**
+```tsx
+<TerminalBottom
+  onSend={handleSendMessage}
+  onCommand={handleCommand}
+  isLoading={isLoading}
+  uiMode={uiMode}
+  stableMode={stableMode}
+  agentMode={agentMode}                  // ← thêm
+  onAgentModeChange={handleAgentModeChange}  // ← thêm
+/>
+```
+
+---
+
+### Bước 5: Thêm lệnh slash `/mode`
+
+Thêm vào `handleCommand` trong `app.tsx`:
+
+```typescript
+// ── /mode — hiển thị hoặc chuyển AgentMode ─────────────────
+if (normalized === '/mode') {
+  const modeList = MODE_LABELS.map(({ mode, label, desc }) =>
+    `${agentMode === mode ? '◉' : '○'} **${mode}** — ${label}: ${desc}`
+  ).join('\n');
+  const modeMsg: Message = {
+    role: 'assistant',
+    content: `⚙️ **Chế độ agent hiện tại: \`${agentMode}\`**\n\n${modeList}\n\nDùng \`/mode <tên-mode>\` để chuyển. Hoặc nhấn **Tab** để xoay vòng mode.`,
+    timestamp: new Date(),
+  };
+  setMessages((prev) => [...prev, modeMsg]);
+  return;
+}
+
+// /mode <tên-mode>
+const modeMatch = normalized.match(/^\/mode\s+(normal|plan|accept-edit|bypass|fix|god-mode)$/);
+if (modeMatch) {
+  const newMode = modeMatch[1] as AgentMode;
+  setAgentMode(newMode);
+  const confirmMsg: Message = {
+    role: 'assistant',
+    content: `⚙️ Đã chuyển chế độ agent sang **\`${newMode}\`**.`,
+    timestamp: new Date(),
+  };
+  setMessages((prev) => [...prev, confirmMsg]);
+  return;
+}
+```
+
+Cần định nghĩa `MODE_LABELS` (có thể import từ `AgentModeBar.tsx` hoặc định nghĩa trong file types/constants riêng):
+
+```typescript
+const MODE_LABELS: { mode: AgentMode; label: string; desc: string }[] = [
+  { mode: 'normal', label: 'Thông thường', desc: 'Hỏi trước khi chạy mọi tool' },
+  { mode: 'plan', label: 'Lên kế hoạch', desc: 'Chỉ lên kế hoạch, không chạy tool' },
+  { mode: 'accept-edit', label: 'Chấp nhận sửa', desc: 'Tự động sửa file, bash vẫn hỏi' },
+  { mode: 'bypass', label: 'Tự động', desc: 'Tự động tất cả tool không cần hỏi' },
+  { mode: 'fix', label: 'Sửa lỗi', desc: 'Vòng lặp sửa lỗi với FIX.md' },
+  { mode: 'god-mode', label: 'God Mode', desc: 'Vòng lặp agent vô tận đến khi xong' },
+];
+```
+
+---
+
+## Vị trí trong TerminalBottom (mockup)
+
+```
+┌───────────────────────────────────────────────────┐
+│ > Nhập tin nhắn hoặc lệnh...                      │
+│                                                   │
+│ ◉ Normal  ○ Plan  ○ Accept Edit  ○ Bypass  ...   │
+│ Tab để chuyển mode · /mode để đổi nhanh           │
+│                                                   │
+│ 💡 /help — Xem danh sách lệnh                     │
+└───────────────────────────────────────────────────┘
+```
+
+---
+
+## Luồng hoạt động
+
+```
+Người dùng nhấn Tab
+  ├─ Có suggestions (đang gõ /...) 
+  │    → Autocomplete lệnh (giữ nguyên hành vi cũ)
+  │
+  └─ Không có suggestions
+       → Gọi onAgentModeChange(mode kế tiếp)
+       → app.tsx setAgentMode(newMode)
+       → AgentModeBar re-render, highlight mode mới
+       → Tab lần nữa → xoay vòng qua mode tiếp theo
+```
+
+---
+
+## File thay đổi
+
+| File | Hành động | Mô tả |
+|------|-----------|-------|
+| `src/services/types.ts` | Sửa | Thêm type `AgentMode` |
+| `src/ui/components/AgentModeBar.tsx` | **Tạo mới** | Component hiển thị thanh mode |
+| `src/ui/components/TerminalBottom.tsx` | Sửa | Thêm props, logic Tab, render AgentModeBar |
+| `src/ui/app.tsx` | Sửa | Thêm state, handler, lệnh /mode, truyền props |
+
+---
+
+## Ghi chú
+
+- AgentModeBar luôn hiển thị trong chat mode (`uiMode === 'chat'`), ẩn khi ở các UI mode khác
+- Khi `isLoading === true`, vẫn cho phép chuyển mode (không disable Tab)
+- Logic xử lý tool dựa trên `agentMode` sẽ được triển khai trong task riêng sau khi UI hoàn thiện
+- Mặc định khởi tạo: `'normal'`

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ProviderConfig } from '../../services/types.js';
+import { t } from '../../services/language.js';
 
 const ITEMS_PER_PAGE = 5;
 
@@ -110,23 +111,26 @@ const ModelMenu = ({
       <Box flexDirection="column" padding={1} borderStyle="round" borderColor="red">
         <Box marginBottom={1}>
           <Text bold color="red">
-            🗑️ Xác nhận xóa model
+            {t('model.deleteConfirm.title')}
           </Text>
         </Box>
         <Box marginY={1}>
           <Text>
-            Bạn có chắc muốn xóa model{' '}
+            {t('model.deleteConfirm.message')}
             <Text color="yellow" bold>
               "{confirmDelete}"
             </Text>
-            {' '}khỏi provider{' '}
+            {t('model.deleteConfirm.from')}
             <Text color="magenta">{provider.name}</Text>?
           </Text>
         </Box>
         <Box marginY={1}>
           <Text>
-            Nhấn <Text color="green" bold>Y</Text> để xác nhận,{' '}
-            <Text color="red" bold>N</Text> để hủy
+            {t('model.deleteConfirm.press')}
+            <Text color="green" bold>Y</Text>
+            {t('model.deleteConfirm.toConfirm')}
+            <Text color="red" bold>N</Text>
+            {t('model.deleteConfirm.toCancel')}
           </Text>
         </Box>
       </Box>
@@ -138,17 +142,17 @@ const ModelMenu = ({
       {/* Tiêu đề */}
       <Box marginBottom={1}>
         <Text bold color="yellow">
-          🤖 Model — {provider.name}
+          {t('model.title')} — {provider.name}
         </Text>
         {provider.defaultModel && (
-          <Text dimColor> (mặc định: {provider.defaultModel})</Text>
+          <Text dimColor> {t('model.defaultLabel')}{provider.defaultModel})</Text>
         )}
       </Box>
 
       {/* Trạng thái fetching */}
       {isFetching && (
         <Box marginBottom={1}>
-          <Text color="yellow">⏳ Đang lấy danh sách model từ API...</Text>
+          <Text color="yellow">{t('model.fetching')}</Text>
         </Box>
       )}
 
@@ -161,12 +165,16 @@ const ModelMenu = ({
       {/* Empty state */}
       {models.length === 0 && !isFetching && (
         <Box marginY={1} flexDirection="column">
-          <Text dimColor>Chưa có model nào được thêm.</Text>
+          <Text dimColor>{t('model.empty')}</Text>
           <Box marginTop={1}>
             <Text>
-              Nhấn <Text color="green" bold>F</Text> để fetch từ API,{' '}
-              <Text color="green" bold>A</Text> để thêm thủ công,{' '}
-              <Text color="yellow" bold>Q</Text> để quay lại
+              {t('model.press')}
+              <Text color="green" bold>F</Text>
+              {t('model.toFetch')}
+              <Text color="green" bold>A</Text>
+              {t('model.toAdd')}
+              <Text color="yellow" bold>Q</Text>
+              {t('model.toQuit')}
             </Text>
           </Box>
         </Box>
@@ -177,13 +185,13 @@ const ModelMenu = ({
         <>
           <Box marginBottom={1}>
             <Text dimColor>
-              Trang {page + 1}/{totalPages} — {models.length} model
+              {t('model.page')}{page + 1}/{totalPages} — {models.length}{t('model.models')}
             </Text>
           </Box>
 
           {hasMoreUp && (
             <Box>
-              <Text color="cyan">↑ Còn model phía trên</Text>
+              <Text color="cyan">{t('model.moreAbove')}</Text>
             </Box>
           )}
 
@@ -204,13 +212,13 @@ const ModelMenu = ({
                 {isDefault && (
                   <Text color="yellow" dimColor>
                     {' '}
-                    (mặc định)
+                    {t('model.defaultTag')}
                   </Text>
                 )}
                 {isSelected && !isDefault && (
                   <Text color="green" bold>
                     {' '}
-                    ← Chọn
+                    {t('model.back')}
                   </Text>
                 )}
               </Box>
@@ -219,7 +227,7 @@ const ModelMenu = ({
 
           {hasMoreDown && (
             <Box>
-              <Text color="cyan">↓ Còn model phía dưới</Text>
+              <Text color="cyan">{t('model.moreBelow')}</Text>
             </Box>
           )}
         </>
@@ -228,15 +236,10 @@ const ModelMenu = ({
       {/* Hướng dẫn phím */}
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>
-          Dùng <Text color="cyan" bold>↑↓</Text> để chọn,{' '}
-          <Text color="green" bold>Enter</Text> để dùng model này chat
+          {t('model.help.select')}
         </Text>
         <Text dimColor>
-          Nhấn <Text color="green" bold>D</Text> đặt mặc định,{' '}
-          <Text color="red" bold>X</Text> xóa,{' '}
-          <Text color="green" bold>F</Text> fetch từ API,{' '}
-          <Text color="green" bold>A</Text> thêm thủ công,{' '}
-          <Text color="yellow" bold>Q</Text> quay lại
+          {t('model.help.actions')}
         </Text>
       </Box>
     </Box>
